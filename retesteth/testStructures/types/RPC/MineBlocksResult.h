@@ -1,9 +1,7 @@
 #pragma once
-#include "../../basetypes.h"
-#include <retesteth/dataObject/DataObject.h>
+#include <retesteth/testStructures/basetypes.h>
+#include <libdataobj/DataObject.h>
 #include <retesteth/testStructures/Common.h>
-
-using namespace dataobject;
 
 namespace test
 {
@@ -39,6 +37,7 @@ struct MineBlocksResult
     }
 
     bool isRejectData() const { return m_isRejectData; }
+    size_t rejectedTxCount() const { return m_rejectedTransactions.size(); }
 
     std::string const& getTrException(FH32 const& _hash) const
     {
@@ -51,7 +50,7 @@ struct MineBlocksResult
 protected:
     bool m_result;
     bool m_isRejectData;
-    std::map<FH32, string> m_rejectedTransactions;
+    std::map<FH32, std::string> m_rejectedTransactions;
 };
 
 

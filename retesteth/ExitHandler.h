@@ -1,6 +1,4 @@
 #pragma once
-#include <retesteth/session/Session.h>
-
 class ExitHandler
 {
 public:
@@ -12,4 +10,9 @@ private:
     static bool m_receivedExitSig;
 };
 
-
+#define CHECKEXIT                          \
+    if (ExitHandler::receivedExitSignal()) \
+        return;
+#define CHECKEXITR(RET)                    \
+    if (ExitHandler::receivedExitSignal()) \
+        return RET;

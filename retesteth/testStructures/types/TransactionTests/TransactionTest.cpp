@@ -1,11 +1,10 @@
-#include <Options.h>
-#include <TestOutputHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <retesteth/testStructures/Common.h>
-#include <retesteth/testStructures/types/Ethereum/TransactionReader.h>
-
+#include <retesteth/Options.h>
 #include "EthChecks.h"
 #include "TransactionTest.h"
 
+using namespace std;
 using namespace test;
 using namespace test::teststruct;
 
@@ -17,10 +16,11 @@ TransactionTest::TransactionTest(spDataObject& _data)
             TestOutputHelper::get().get().testFile().string() + " A test file must contain an object value (json/yaml).");
         ETH_ERROR_REQUIRE_MESSAGE(_data->getSubObjects().size() >= 1,
             TestOutputHelper::get().get().testFile().string() + " A test file must contain at least one test!");
+        m_tests.reserve(_data->getSubObjects().size());
         for (auto& el : _data.getContent().getSubObjectsUnsafe())
         {
             TestOutputHelper::get().setCurrentTestInfo(TestInfo("TransactionTestFiller", el->getKey()));
-            m_tests.push_back(TransactionTestInFilled(el));
+            m_tests.emplace_back(TransactionTestInFilled(el));
         }
     }
     catch (DataObjectException const& _ex)
@@ -47,19 +47,21 @@ TransactionTestInFilled::TransactionTestInFilled(spDataObject& _data)
         }
         catch (...)
         {
-            ETH_WARNING("Unable to read transaction from 'txbytes'");
+            if (Options::get().filltests)
+                ETH_WARNING("Unable to read transaction from 'txbytes'");
             m_readTransaction = spTransaction(0);
         }
 
         for (auto const& el : _data->atKey("result").getSubObjects())
         {
-
+            FORK fork(el->getKey());
+            m_forks.emplace(fork);
             if (el->count("exception"))
             {
                 REQUIRE_JSONFIELDS(el, "TransactionTestInFilled::result ",
                     {{"exception", {{DataType::String}, jsonField::Required}},
                         {"intrinsicGas", {{DataType::String}, jsonField::Required}}});
-                m_expectExceptions.emplace(FORK(el->getKey()), el->atKey("exception").asString());
+                m_expectExceptions.emplace(fork, el->atKey("exception").asString());
             }
             else
             {
@@ -70,7 +72,7 @@ TransactionTestInFilled::TransactionTestInFilled(spDataObject& _data)
                 spFH32 hash(new FH32(el->atKey("hash")));
                 spFH20 sender(new FH20(el->atKey("sender")));
                 spVALUE intrGas(new VALUE(el->atKey("intrinsicGas")));
-                m_acceptedTransactions.emplace(FORK(el->getKey()), TransactionResult(hash, sender, intrGas));
+                m_acceptedTransactions.emplace(fork, TransactionResult(hash, sender, intrGas));
             }
         }
     }
@@ -78,4 +80,16 @@ TransactionTestInFilled::TransactionTestInFilled(spDataObject& _data)
     {
         ETH_ERROR_MESSAGE(string("TransactionTestFilled convertion error: ") + _ex.what());
     }
+}
+
+void TransactionTest::registerAllVectors() const
+{
+    string execTotal;
+    auto const& helper = TestOutputHelper::get();
+    string const suite = boost::unit_test::framework::current_test_case().full_name();
+    string const execPrefix = string("-t ") + suite + " --";
+    auto const filename = helper.testFile().stem().string();
+    const string exec = string(" --singletest ") + filename + "\n";
+    execTotal += execPrefix + exec;
+    TestOutputHelper::get().addTestVector(std::move(execTotal));
 }

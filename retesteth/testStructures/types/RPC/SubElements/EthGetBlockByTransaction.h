@@ -1,16 +1,13 @@
 #pragma once
 #include "../../../basetypes.h"
-#include "../../Ethereum/Transaction.h"
-#include <retesteth/dataObject/DataObject.h>
+#include "../../Ethereum/Transactions/Transaction.h"
+#include <libdataobj/DataObject.h>
 
-using namespace dataobject;
+namespace test::teststruct
+{
 
-namespace test
-{
-namespace teststruct
-{
 // Transaction Structure inside RPC response eth_getBlockByHash/eth_getBlockByNumber
-struct EthGetBlockByTransaction
+struct EthGetBlockByTransaction : GCP_SPointerBase
 {
     EthGetBlockByTransaction(spDataObjectMove);
     FH32 const& hash() const { return m_hash; }
@@ -41,5 +38,6 @@ private:
     spVALUE m_transactionIndex;
 };
 
+typedef GCP_SPointer<EthGetBlockByTransaction> spEthGetBlockByTransaction;
+
 }  // namespace teststruct
-}  // namespace test

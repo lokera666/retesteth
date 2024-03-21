@@ -1,6 +1,6 @@
-#include <retesteth/TestHelper.h>
-#include <retesteth/TestOutputHelper.h>
-#include <boost/test/unit_test.hpp>
+#include <retesteth/EthChecks.h>
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 
 using namespace std;
 using namespace dev;

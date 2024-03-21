@@ -3,14 +3,10 @@
 #include "../../configs/SealEngine.h"
 #include "../Ethereum/State.h"
 #include "../StateTests/Filled/Info.h"
-
 #include "Filled/BlockchainTestBlock.h"
 #include "Filled/BlockchainTestEnv.h"
-#include <retesteth/dataObject/DataObject.h>
-#include <retesteth/dataObject/SPointer.h>
+#include <libdataobj/DataObject.h>
 
-// using namespace dataobject;
-using namespace test::teststruct;
 namespace test
 {
 namespace teststruct
@@ -18,7 +14,7 @@ namespace teststruct
 struct BlockchainTestInFilled : GCP_SPointerBase
 {
     BlockchainTestInFilled(spDataObject&);
-    string const& testName() const { return m_name; }
+    std::string const& testName() const { return m_name; }
     Info const& testInfo() const { return m_info; }
     BlockchainTestEnv const& Env() const { return m_env; }
     BYTES const& genesisRLP() const { return m_genesisRLP; }
@@ -28,16 +24,17 @@ struct BlockchainTestInFilled : GCP_SPointerBase
     State const& Pre() const { return m_pre; }
 
     bool isFullState() const { return !m_post.isEmpty(); }
+    bool hasBigInt() const { return m_hasBigInt; }
     State const& Post() const { return m_post; }
     FH32 const& PostHash() const { return m_postHash; }
     FH32 const& lastBlockHash() const { return m_lastBlockHash; }
 
     std::vector<BlockchainTestBlock> const& blocks() const { return m_blocks; }
-    std::vector<string> const& unitTestExceptions() const { return m_exceptions; }
+    std::vector<std::string> const& unitTestExceptions() const { return m_exceptions; }
 
 private:
     BlockchainTestInFilled() {}
-    string m_name;
+    std::string m_name;
     spInfo m_info;
     SealEngine m_sealEngine;
     spFORK m_fork;
@@ -49,14 +46,16 @@ private:
     spState m_post;
     spFH32 m_postHash;
     spFH32 m_lastBlockHash;
+    bool m_hasBigInt = false;
 
-    std::vector<string> m_exceptions;
+    std::vector<std::string> m_exceptions;
 };
 
 struct BlockchainTest
 {
     BlockchainTest(spDataObject&);
     std::vector<BlockchainTestInFilled> const& tests() const { return m_tests; }
+    void registerAllVectors() const;
 
 private:
     BlockchainTest() {}

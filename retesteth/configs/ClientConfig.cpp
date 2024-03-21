@@ -1,7 +1,18 @@
+#include <retesteth/EthChecks.h>
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <retesteth/configs/ClientConfig.h>
 #include <retesteth/testStructures/Common.h>
-#include <mutex>
+#include <retesteth/Constants.h>
+#include <retesteth/Options.h>
+using namespace std;
+using namespace dataobject;
+using namespace test::debug;
+using namespace test::teststruct;
+namespace fs = boost::filesystem;
+
 std::mutex g_staticDeclaration_clientConfigID;
+std::mutex g_staticDeclaration_translateNetworks_static;
 namespace test
 {
 ClientConfigID::ClientConfigID()
@@ -16,9 +27,12 @@ ClientConfig::ClientConfig(fs::path const& _clientConfigPath) : m_id(ClientConfi
 {
     try
     {
+        fs::path const default_ClientConfigPath = _clientConfigPath.parent_path() / "default";
         TestOutputHelper::get().setCurrentTestInfo(TestInfo("Client Config init"));
         fs::path configFile = _clientConfigPath / "config";
         ETH_FAIL_REQUIRE_MESSAGE(fs::exists(configFile), string("Client config not found: ") + configFile.c_str());
+
+        m_pyspecsStartPath = _clientConfigPath.parent_path() / "pyspecsStart.sh";
 
         // Script to setup the instance
         fs::path setupScript = _clientConfigPath / "setup.sh";
@@ -40,38 +54,70 @@ ClientConfig::ClientConfig(fs::path const& _clientConfigPath) : m_id(ClientConfi
 
         // Load genesis templates from default dir if not set in this folder
         fs::path genesisTemplatePath = _clientConfigPath / "genesis";
+        fs::path default_genesisTemplatePath = default_ClientConfigPath / "genesis";
         if (!fs::exists(genesisTemplatePath))
         {
             genesisTemplatePath = _clientConfigPath.parent_path() / "default" / "genesis";
-            ETH_FAIL_REQUIRE_MESSAGE(fs::exists(genesisTemplatePath), "default/genesis client config not found!");
+            ETH_FAIL_REQUIRE_MESSAGE(fs::exists(genesisTemplatePath), genesisTemplatePath.string() + " client config path not found!");
         }
 
         // Load genesis templates
         for (auto const& net : cfgFile().allowedForks())
         {
-            fs::path configGenesisTemplatePath = genesisTemplatePath / (net.asString() + ".json");
+            if (checkForkSkipOnFiller(net))
+                continue;
+            fs::path const configGenesisTemplatePath = genesisTemplatePath / (net.asString() + ".json");
+            if (!fs::exists(configGenesisTemplatePath))
+            {
+                // try to load default option instead, if genesis folder exists but overrides only a few defaults
+                fs::path const default_configGenesisTemplatePath = default_genesisTemplatePath / (net.asString() + ".json");
+                ETH_FAIL_REQUIRE_MESSAGE(fs::exists(default_genesisTemplatePath), "default/genesis client config not found!");
+                if (fs::exists(default_configGenesisTemplatePath))
+                {
+                    m_genesisTemplate[net] = test::readJsonData(default_configGenesisTemplatePath);
+
+                    auto const& genesisData = m_genesisTemplate[net];
+                    if (genesisData->count("params") && genesisData->atKey("params").count("chainID"))
+                        m_genesisTemplateChainID[net] = spVALUE(new VALUE(genesisData->atKey("params").atKey("chainID")));
+
+                    continue;
+                }
+                else
+                    ETH_WARNING(string("Tried to load default config unsuccessfull: ") + default_configGenesisTemplatePath.c_str());
+            }
             ETH_FAIL_REQUIRE_MESSAGE(fs::exists(configGenesisTemplatePath),
                 "\ntemplate '" + net.asString() + ".json' for client '" +
                     _clientConfigPath.stem().string() + "' not found ('" +
                     configGenesisTemplatePath.c_str() + "') in configs!");
             m_genesisTemplate[net] = test::readJsonData(configGenesisTemplatePath);
+
+            auto const& genesisData = m_genesisTemplate[net];
+            if (genesisData->count("params") && genesisData->atKey("params").count("chainID"))
+                m_genesisTemplateChainID[net] = spVALUE(new VALUE(genesisData->atKey("params").atKey("chainID")));
         }
+
+
 
         // Load correctmining Reward
         m_correctMiningRewardPath = genesisTemplatePath / "correctMiningReward.json";
         ETH_FAIL_REQUIRE_MESSAGE(fs::exists(m_correctMiningRewardPath),
             "correctMiningReward.json client config not found!");
-        spDataObject correctMiningReward = test::readJsonData(m_correctMiningRewardPath);
+
+        CJOptions opt { .jsonParse = CJOptions::JsonParse::ALLOW_COMMENTS };
+        spDataObject correctMiningReward = test::readJsonData(m_correctMiningRewardPath, opt);
         correctMiningReward.getContent().performModifier(mod_removeComments);
         correctMiningReward.getContent().performModifier(mod_valueToCompactEvenHexPrefixed);
         for (auto const& el : cfgFile().forks())
         {
             if (!correctMiningReward->count(el.asString()))
-                ETH_FAIL_MESSAGE("Correct mining reward missing block reward record for fork: `" +
-                                 el.asString() + "` (" + m_correctMiningRewardPath.string() + ")");
+            {
+                (*correctMiningReward)[el.asString()] = "0x00";
+                ETH_DC_MESSAGE(DC::STATS2, "Correct mining reward init default reward '0' for fork: `" +
+                            el.asString() + "` (" + m_correctMiningRewardPath.string() + ")");
+            }
         }
         for (auto const& el : correctMiningReward->getSubObjects())
-            m_correctReward[el->getKey()] = spVALUE(new VALUE(correctMiningReward->atKey(el->getKey())));
+            m_correctReward[el->getKey()] = sVALUE(correctMiningReward->atKey(el->getKey()));
     }
     catch (std::exception const& _ex)
     {
@@ -79,9 +125,22 @@ ClientConfig::ClientConfig(fs::path const& _clientConfigPath) : m_id(ClientConfi
     }
 }
 
+
+bool tryLookPlussedFork(ClientConfigFile const& _cfgFile, FORK const& _net)
+{
+    string const plussedFork = makePlussedFork(_net);
+    if (!plussedFork.empty())
+        return _cfgFile.allowedForks().count(plussedFork);
+    return false;
+}
+
 bool ClientConfig::validateForkAllowed(FORK const& _net, bool _bail) const
 {
-    if (!cfgFile().allowedForks().count(_net))
+    bool checkForkDefenition = cfgFile().allowedForks().count(_net);
+    if (!checkForkDefenition)
+        checkForkDefenition = tryLookPlussedFork(cfgFile(), _net);
+
+    if (!checkForkDefenition)
     {
         ETH_WARNING("Specified network not found: '" + _net.asString() +
                     "', skipping the test. Enable the fork network in config file: " +
@@ -95,30 +154,50 @@ bool ClientConfig::validateForkAllowed(FORK const& _net, bool _bail) const
 
 bool ClientConfig::checkForkAllowed(FORK const& _net) const
 {
-    return cfgFile().allowedForks().count(_net);
+    bool checkForkDefenition = cfgFile().allowedForks().count(_net);
+    if (!checkForkDefenition)
+        checkForkDefenition = tryLookPlussedFork(cfgFile(), _net);
+    return checkForkDefenition;
+}
+
+bool ClientConfig::checkForkInProgression(FORK const& _net) const
+{
+    return cfgFile().forkProgressionAsSet().count(_net);
+}
+
+bool ClientConfig::checkForkSkipOnFiller(FORK const& _net) const
+{
+    for (auto const& fork : cfgFile().fillerSkipForks())
+    {
+        if (fork == _net)
+            return true;
+    }
+    return false;
 }
 
 /// translate network names in expect section field
 /// >Homestead to EIP150, EIP158, Byzantium, ...
 /// <=Homestead to Frontier, Homestead
-std::vector<FORK> ClientConfig::translateNetworks(set<string> const& _networks, std::vector<FORK> const& _netOrder)
+void ClientConfig::translateNetworks(set<string> const& _networks, std::vector<FORK> const& _netOrder, std::vector<FORK>& _out)
 {
+    std::lock_guard<std::mutex> lock(g_staticDeclaration_translateNetworks_static);
     // Construct vector with test network names in a right order
     // (from Frontier to Homestead ... to Constantinople)
     // According to fork order in config file
 
     // Protection from putting double networks.
     // Use vector instead of set to keep the fork order
-    std::vector<FORK> out;
-    auto addNet = [&out](FORK const& _el) {
-        for (auto const& fork : out)
+    auto addNet = [&_out](FORK const& _el) {
+        for (auto const& fork : _out)
             if (fork == _el)
                 return;
-        out.push_back(_el);
+        _out.push_back(_el);
     };
 
     for (auto const& net : _networks)
     {
+        if (net.size() < 1)
+            ETH_ERROR_MESSAGE("ClientConfig::translateNetworks:: Given net is too short `" + net + "`");
         std::vector<FORK> const& forkOrder = _netOrder;
         string possibleNet = net.substr(1, net.length() - 1);
         vector<FORK>::const_iterator it = std::find(forkOrder.begin(), forkOrder.end(), possibleNet);
@@ -158,7 +237,7 @@ std::vector<FORK> ClientConfig::translateNetworks(set<string> const& _networks, 
             }
             else if (net[0] == '<' && net[1] == '=')
             {
-                out.push_back(*it);
+                _out.push_back(*it);
                 while (it != forkOrder.begin())
                 {
                     addNet(*(--it));
@@ -171,12 +250,12 @@ std::vector<FORK> ClientConfig::translateNetworks(set<string> const& _networks, 
         if (!isNetworkTranslated)
             addNet(net);
     }
-    return out;
 }
 
 std::vector<FORK> ClientConfig::translateNetworks(set<string> const& _networks) const
 {
-    std::vector<FORK> nets = ClientConfig::translateNetworks(_networks, cfgFile().forks());
+    std::vector<FORK> nets;
+    ClientConfig::translateNetworks(_networks, cfgFile().forks(), nets);
     for (auto const& net : nets)
         validateForkAllowed(net);
     return nets;
@@ -199,18 +278,37 @@ std::string const& ClientConfig::translateException(string const& _exceptionName
     for (auto const& el : suggestions)
         message += el + ", ";
     message += " ...)";
-    ETH_ERROR_MESSAGE("Config::getExceptionString '" + _exceptionName + "' not found in client config `exceptions` section! (" +
-                      cfg.path().c_str() + ")" + message);
+    string const error = "Config::getExceptionString '" + _exceptionName + "' not found in client config `exceptions` section! (" +
+                         cfg.path().c_str() + ")" + message;
+    ETH_DC_MESSAGE(DC::STATS2, error);
+    return _exceptionName;
+
     // ---
-    static string const notfound = string();
-    return notfound;
+    return C_EMPTY_STR;
 }
 
 // Get Contents of genesis template for specified FORK
-spDataObject const& ClientConfig::getGenesisTemplate(FORK const& _fork) const
+spDataObject ClientConfig::getGenesisTemplate(FORK const& _fork) const
 {
-    ETH_FAIL_REQUIRE_MESSAGE(m_genesisTemplate.count(_fork),
-        "Genesis template for network '" + _fork.asString() + "' not found!");
+    bool const templateHasFork = m_genesisTemplate.count(_fork);
+    if (!templateHasFork)
+    {
+        string const plussedFork = makePlussedFork(_fork);
+        if (!plussedFork.empty() && m_genesisTemplate.count(plussedFork))
+        {
+            auto const& origTemplate = m_genesisTemplate.at(plussedFork).getCContent();
+            if (origTemplate.count("params") && origTemplate.atKey("params").count("fork"))
+            {
+                spDataObject tmplateOriginal = m_genesisTemplate.at(plussedFork)->copy();
+                size_t pos = _fork.asString().find("+");
+                tmplateOriginal.getContent().atKeyUnsafe("params").atKeyUnsafe("fork").asStringUnsafe() +=
+                    _fork.asString().substr(pos);
+                return tmplateOriginal;
+            }
+        }
+    }
+
+    ETH_FAIL_REQUIRE_MESSAGE(templateHasFork, "Genesis template for network '" + _fork.asString() + "' not found!");
     return m_genesisTemplate.at(_fork);
 }
 
@@ -221,9 +319,17 @@ void ClientConfig::initializeFirstSetup()
         m_initialized = true;
         if (fs::exists(getSetupScript()))
         {
-            std::cout << "Initialize setup script.." << std::endl;
+            auto cmd = [](string const& _cmd) {
+                int exitCode;
+                test::executeCmd(_cmd, exitCode, ExecCMDWarning::NoWarning);
+            };
             string const setup = getSetupScript().c_str();
-            test::executeCmd(setup, ExecCMDWarning::NoWarning);
+            ETH_DC_MESSAGE(DC::RPC, string("Initialize setup script: ") + setup);
+
+            thread task(cmd, setup);
+            task.detach();
+            size_t const initTime = cfgFile().initializeTime();
+            this_thread::sleep_for(chrono::seconds(initTime));
         }
     }
 }
@@ -255,6 +361,27 @@ void ClientConfig::performFieldReplace(DataObject& _data, FieldReplaceDir const&
         for (auto& obj : _data.getSubObjectsUnsafe())
             performFieldReplace(obj.getContent(), _dir);
     }
+}
+
+spVALUE const& ClientConfig::getRewardForFork(FORK const& _fork) const
+{
+    // Load rewards for 'fork' from 'fork+xxxx'
+    FORK const& fork = _fork;
+    bool hasReward = m_correctReward.count(_fork);
+    if (!hasReward)
+    {
+        string const forkPlussed = test::makePlussedFork(_fork);
+        if (!forkPlussed.empty())
+        {
+            hasReward = m_correctReward.count(forkPlussed);
+            if (hasReward)
+                return m_correctReward.at(forkPlussed);
+        }
+    }
+    ETH_ERROR_REQUIRE_MESSAGE(m_correctReward.count(fork),
+        "Network '" + fork.asString() + "' not found in correct mining info config (" +
+            getRewardMapPath().string() + ") Client: " + cfgFile().name());
+    return m_correctReward.at(fork);
 }
 
 

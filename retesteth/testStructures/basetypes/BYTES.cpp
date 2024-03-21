@@ -1,10 +1,9 @@
-#include "BYTES.h"
 #include <libdevcore/CommonIO.h>
 #include <retesteth/EthChecks.h>
-#include <retesteth/TestHelper.h>
-#include <sstream>
+#include <retesteth/helpers/TestHelper.h>
 using namespace test::teststruct;
 using namespace dev;
+using namespace std;
 
 namespace
 {
@@ -38,6 +37,22 @@ BYTES::BYTES(DataObject const& _data)
     m_data = v.substr(2);
     toLowerHexStr(m_data);
     m_data = "0x" + m_data;
+}
+
+BYTES::BYTES(string const& _data)
+{
+    string const& v = _data;
+    if (v.size() < 2 || v[0] != '0' || v[1] != 'x')
+        ETH_ERROR_MESSAGE("Bytes are not BYTES `" + v + "`");
+    m_data = v.substr(2);
+    toLowerHexStr(m_data);
+    m_data = "0x" + m_data;
+}
+
+size_t BYTES::firstByte() const
+{
+    string const sFirstByte = asString().substr(2, 2);
+    return std::strtol(sFirstByte.c_str(), NULL, 16);
 }
 
 }  // namespace teststruct

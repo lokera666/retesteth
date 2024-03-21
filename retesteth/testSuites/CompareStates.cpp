@@ -1,7 +1,10 @@
 #include "Common.h"
 #include <retesteth/Options.h>
-#include <retesteth/testStructures/types/Ethereum/State.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 using namespace std;
+using namespace test::debug;
+using namespace test::session;
+
 namespace test
 {
 
@@ -35,9 +38,9 @@ State::Account remoteGetAccount(SessionInterface& _session, VALUE const& _bNumbe
 }
 
 // Get full remote state from the client
-State getRemoteState(SessionInterface& _session)
+spState getRemoteState(SessionInterface& _session)
 {
-    VALUE recentBNumber(_session.eth_blockNumber());
+    VALUE const recentBNumber = _session.eth_blockNumber();
     EthGetBlockBy recentBlock(_session.eth_getBlockByNumber(recentBNumber, Request::LESSOBJECTS));
     VALUE trIndex(recentBlock.transactions().size());
 
@@ -49,7 +52,7 @@ State getRemoteState(SessionInterface& _session)
         DebugAccountRange range(_session.debug_accountRange(recentBNumber, trIndex, nextKey, 10));
         for (auto const& el : range.addresses())
         {
-            accountList.push_back(el);
+            accountList.emplace_back(el);
             if (!Options::get().fullstate && accountList.size() > 50)
                 throw StateTooBig();
         }
@@ -74,7 +77,7 @@ State getRemoteState(SessionInterface& _session)
                 throw StateTooBig();
         }
     }
-    return State(stateAccountMap);
+    return spState(new State(stateAccountMap));
 }
 
 // Compare expected state with session asking post state data on the fly
@@ -151,10 +154,33 @@ CompareResult compareStorage(Storage const& _expectStorage, Storage const& _remo
         else if (_remoteStorage.hasKey(expKey))
         {
             VALUE const& remoteVal = _remoteStorage.atKey(expKey);
-            if (remoteVal != expVal)
+            // Treat expVal as ANY allowed value if it has bigint prefix
+            if (remoteVal != expVal && !expVal.isBigInt())
             {
-                ETH_MARK_ERROR(message + "has incorrect storage [" + expKey.asString() + "] = `" + remoteVal.asString() +
-                               "`, test expected [" + expKey.asString() + "] = `" + expVal.asString() + "`");
+                ETH_MARK_ERROR(message + "has incorrect storage [" + expKey.asString() + "] = `" +
+                               remoteVal.asString() + "(" + remoteVal.asDecString() + ")" +
+                               "`, test expected [" + expKey.asString() + "] = `" +
+                               expVal.asString() + "(" + expVal.asDecString() + ")" +
+                               "`");
+                result = CompareResult::IncorrectStorage;
+            }
+        }
+    }
+
+    if (_expectStorage.getKeys().size() == _remoteStorage.getKeys().size())
+    {
+        string storage = message + " has storage records that are not checked by expected storage!";
+        for (auto const& element : _remoteStorage.getKeys())
+        {
+            VALUE const& remKey = std::get<0>(element.second);
+            auto const& remVal = std::get<1>(element.second);
+            storage += "\n [" + remKey.asDecString() + "] = " + remVal->asString();
+            storage += "(";
+            storage += remVal->asDecString();
+            storage += ")\n";
+            if (!_expectStorage.hasKey(remKey))
+            {
+                ETH_MARK_ERROR(storage);
                 result = CompareResult::IncorrectStorage;
             }
         }
@@ -167,9 +193,13 @@ CompareResult compareStorage(Storage const& _expectStorage, Storage const& _remo
         for (auto const& el : _remoteStorage.getKeys())
         {
             if (!_expectStorage.hasKey(VALUE(el.first)))
-                keys.push_back(el.first);
+                keys.emplace_back(el.first);
         }
-        storage += "\n [" + keys.at(0) + "] = " + _remoteStorage.atKey(VALUE(keys.at(0))).asString();
+        auto const& remVal = _remoteStorage.atKey(VALUE(keys.at(0)));
+        storage += "\n [" + keys.at(0) + "] = " + remVal.asString();
+        storage += "(";
+        storage += remVal.asDecString();
+        storage += ")\n";
 
         ETH_MARK_ERROR(storage);
         result = CompareResult::IncorrectStorage;
@@ -252,8 +282,11 @@ void compareStates(StateBase const& _stateExpect, State const& _statePost)
         if (accountCompareResult != CompareResult::Success)
             result = accountCompareResult;
     }
-    if (Options::get().poststate)
-        ETH_STDOUT_MESSAGE("State Dump: \n" + _statePost.asDataObject()->asJson());
+    auto const& opt = Options::get();
+    if (opt.poststate && !opt.poststate.isBlockSelected)
+        ETH_DC_MESSAGE(DC::STATE, "Compare States State Dump: " +
+                       test::TestOutputHelper::get().testInfo().errorDebug() + cDefault +
+                       " \n" + _statePost.asDataObject()->asJson());
     if (result != CompareResult::Success)
         ETH_ERROR_MESSAGE("CompareStates failed with errors: " + CompareResultToString(result));
 }

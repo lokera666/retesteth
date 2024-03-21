@@ -24,20 +24,45 @@ defaults:
       # (ninja is using relative paths otherwise).
       working_directory: ~/build
       command: |
-        cmake ../project -G "$GENERATOR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCOVERAGE=ON $CMAKE_OPTIONS
+        cmake ../project -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCOVERAGE=OFF $CMAKE_OPTIONS
 
   configureMac: &configureMac
     run:
       name: "ConfigureMac"
       working_directory: ~/build
       command: |
-        cmake ../project -G "$GENERATOR" -DCMAKE_BUILD_TYPE=$BUILD_TYPE -DCOVERAGE=ON $CMAKE_OPTIONS -DCMAKE_TOOLCHAIN_FILE=~/project/toolchain.cmake
+        cmake ../project -DCMAKE_BUILD_TYPE=$BUILD_TYPE $CMAKE_OPTIONS -DCMAKE_TOOLCHAIN_FILE=~/project/toolchain.cmake
 
   build: &build
     run:
       name: "Build"
       working_directory: ~/build
-      command: cmake --build . -- -j $BUILD_PARALLEL_JOBS
+      command: make -j $BUILD_PARALLEL_JOBS
+
+  linuxInstallGO: &linuxInstallGO
+    run:
+      name: "LinuxInstallGO and Tests"
+      working_directory: ~/project
+      command: |
+          curl -L --output go1.20.linux-amd64.tar.gz "https://dl.google.com/go/go1.20.linux-amd64.tar.gz"
+          tar -xf go1.20.linux-amd64.tar.gz
+          sudo mv go /usr/local
+          sudo ln -s /usr/local/go/bin/go /usr/local/bin/go
+          git clone --depth 1 https://github.com/ethereum/go-ethereum.git
+          git clone --depth 1 https://github.com/ethereum/tests.git
+          cd go-ethereum
+          make all
+          sudo ln -s ~/project/go-ethereum/build/bin/evm /usr/local/bin/evm
+
+  test-retesteth: &test-retesteth
+    run:
+      name: "Test-retesteth"
+      working_directory: ~/build/retesteth
+      command: |
+        ./retesteth -t GeneralStateTests/stExample -- --testpath ~/project/tests
+        ./retesteth -t BlockchainTests/ValidBlocks/bcExample -- --testpath ~/project/tests
+        ./retesteth -t GeneralStateTests -- --checkhash --testpath ~/project/tests
+        ./retesteth -t BlockchainTests -- --checkhash --testpath ~/project/tests
 
   test: &test
     run:
@@ -51,7 +76,11 @@ defaults:
         ./retesteth -t EthObjectsSuite
         ./retesteth -t DataObjectTestSuite
         ./retesteth -t OptionsSuite
+        ./retesteth -t ExpectSectionSuite
+        ./retesteth -t StructTest
+        ./retesteth -t MemoryLeak
 #        ./retesteth -t LLLCSuite
+#        ./retesteth -t trDataCompileSuite
 #        git clone --depth 1 https://github.com/ethereum/tests.git
 #        export ETHEREUM_TEST_PATH=~/build/testeth/tests
 #        ctest --output-on-failure -j $TEST_PARALLEL_JOBS
@@ -60,6 +89,12 @@ defaults:
     store_artifacts:
       path: ~/build/retesteth
       destination: retesteth
+
+  store-log: &store-log
+    store_artifacts:
+      path: /home/builder/build/deps/src/secp256k1-stamp
+      destination: log
+
 
   upload-coverage-data: &upload-coverage-data
     run:
@@ -112,33 +147,66 @@ defaults:
     - *configure
 #    - *upload-hunter-cache
 #    - *install-solidity
+    - *linuxInstallGO
     - *build
     - *store-retesteth
+    - *store-log
     - *test
+    - *test-retesteth
 #    - *upload-coverage-data
+
+  mac-steps: &mac-steps
+      - checkout
+      - run:
+          name: "Install macOS dependencies"
+          # Python3 and requests are needed for Hunter upload.
+          command: |
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install -q cmake ninja git
+            git clone --depth 1 https://github.com/ethereum/go-ethereum.git
+            git clone --depth 1 https://github.com/ethereum/tests.git
+
+            curl -L https://go.dev/dl/go1.20.1.darwin-amd64.pkg -o go1.20.pkg
+            chmod +x go1.20.pkg
+            sudo installer -pkg go1.20.pkg -target /
+            sudo ln -s /usr/local/go/bin/go /usr/local/bin
+
+            cd go-ethereum
+            make all
+            ln -s ~/project/go-ethereum/build/bin/evm /usr/local/bin/evm
+
+      - *environment-info
+      - *configureMac
+#      - *install-solidity-mac
+      - *build
+      - *store-retesteth
+      - *store-log
+      - *test
+      - *test-retesteth
+#      - *upload-coverage-data
 
 
 version: 2
 jobs:
 
-  Linux-Clang6:
+  Linux-Clang11:
     environment:
-      - CXX: clang++-6.0
-      - CC:  clang-6.0
-      - GCOV: llvm-cov-6.0 gcov
+      - BUILD_TYPE: Release
+      - CXX: clang++
+      - CC:  clang
+      - GCOV: llvm-cov gcov
       - GENERATOR: Ninja
       - BUILD_PARALLEL_JOBS: 8
       - TEST_PARALLEL_JOBS: 8
     docker:
-      - image: ethereum/cpp-build-env:7
+      - image: ethereum/cpp-build-env:18-clang-11
     steps: *linux-steps
 
-  Linux-GCC6-Debug:
+  Linux-GCC9:
     environment:
       - BUILD_TYPE: Release
-      - CXX: g++-6
-      - CC:  gcc-6
-      - GCOV: gcov-6
+      - CXX: g++-9
+      - CC:  gcc-9
+      - GCOV: gcov-9
       - GENERATOR: Ninja
       - BUILD_PARALLEL_JOBS: 4
       - TEST_PARALLEL_JOBS: 4
@@ -146,33 +214,32 @@ jobs:
       # - CMAKE_OPTIONS: -DSANITIZE=address
       # - ASAN_OPTIONS: detect_leaks=0
     docker:
-      - image: ethereum/cpp-build-env:7
+      - image: ethereum/cpp-build-env:18-gcc-9
     steps: *linux-steps
 
-  macOS-XCode11:
+  Linux-GCC12:
     environment:
-      - CXX: clang++
-      - GCOV: gcov
+      - BUILD_TYPE: Release
+      - CXX: g++-12
+      - CC:  gcc-12
+      - GCOV: gcov-12
       - GENERATOR: Ninja
-      - BUILD_PARALLEL_JOBS: 8
-      - TEST_PARALLEL_JOBS: 8
+      - BUILD_PARALLEL_JOBS: 4
+      - TEST_PARALLEL_JOBS: 4
+    docker:
+      - image: ethereum/cpp-build-env:19-gcc-12
+    steps: *linux-steps
+
+  macOS-XCode14:
+    environment:
+      - BUILD_TYPE: Release
+      - CXX: clang++
+      - GENERATOR: Ninja
+      - BUILD_PARALLEL_JOBS: 4
+      - TEST_PARALLEL_JOBS: 4
     macos:
-      xcode: "11.3.1"
-    steps:
-      - checkout
-      - *environment-info
-      - run:
-          name: "Install macOS dependencies"
-          # Python3 and requests are needed for Hunter upload.
-          command: |
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install -q cmake ninja
-      - *configureMac
-#      - *upload-hunter-cache
-#      - *install-solidity-mac
-      - *build
-      - *store-retesteth
-      - *test
-#      - *upload-coverage-data
+      xcode: "14.2.0"
+    steps: *mac-steps
 
 # TODO: Run GCC6 build only in develop branch.
 # TODO: Enabled nightly builds and add more configs.
@@ -181,6 +248,7 @@ workflows:
   version: 2
   cpp-ethereum:
     jobs:
-      - macOS-XCode11
-      - Linux-Clang6
-      - Linux-GCC6-Debug
+      - macOS-XCode14
+      - Linux-Clang11
+      - Linux-GCC9
+      - Linux-GCC12

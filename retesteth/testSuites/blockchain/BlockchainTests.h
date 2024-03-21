@@ -3,109 +3,69 @@
  */
 
 #pragma once
-#include <dataObject/DataObject.h>
-#include <retesteth/Options.h>
-#include <retesteth/TestHelper.h>
-#include <retesteth/TestSuite.h>
+#include <libdataobj/DataObject.h>
+#include <retesteth/testSuiteRunner/TestSuite.h>
 #include <retesteth/testSuites/TestFixtures.h>
 #include <boost/filesystem/path.hpp>
 
 namespace test
 {
+using namespace dataobject;
 
-/// Suite run and check blockchain tests with valid blocks only
-class BlockchainTestValidSuite : public TestSuite
-{
-public:
-    spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override;
-    TestPath suiteFolder() const override;
-    FillerPath suiteFillerFolder() const override;
-};
+#define REGISTER_SUITE_OVERRIDE(SUITE, BASE, CODE)      \
+    class SUITE : public BASE                           \
+    {                                                   \
+        CODE                                            \
+    public:                                             \
+        spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override; \
+        TestPath suiteFolder() const override;          \
+        FillerPath suiteFillerFolder() const override;  \
+    };
 
-/// Suite run/check generate blockchain tests that has malicious blocks
-class BlockchainTestInvalidSuite : public TestSuite
-{
-public:
-    spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override;
-    TestPath suiteFolder() const override;
-    FillerPath suiteFillerFolder() const override;
-};
+#define REGISTER_SUITE(SUITE, BASE)                     \
+    class SUITE : public BASE                           \
+    {                                                   \
+    public:                                             \
+        TestPath suiteFolder() const override;          \
+        FillerPath suiteFillerFolder() const override;  \
+    };
 
-/// Suite run/check blockchain tests with fork transition configurations
-class BlockchainTestTransitionSuite : public TestSuite
-{
-public:
-    spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override;
-    TestPath suiteFolder() const override;
-    FillerPath suiteFillerFolder() const override;
-};
+REGISTER_SUITE_OVERRIDE(BlockchainTestValidSuite, TestSuite,)
+REGISTER_SUITE_OVERRIDE(BlockchainTestInvalidSuite, TestSuite,)
+REGISTER_SUITE_OVERRIDE(BlockchainTestTransitionSuite, TestSuite,)
 
-/// Suite run/check stateTests converted into blockchain by testeth
-class BCGeneralStateTestsSuite : public BlockchainTestValidSuite
-{
-    test::TestSuite::TestPath suiteFolder() const override;
-    test::TestSuite::FillerPath suiteFillerFolder() const override;
-public:
-    BCGeneralStateTestsSuite() {
-        TestInfo errorInfo("Initialized ", "BCGeneralStateTestsSuite");
-        TestOutputHelper::get().setCurrentTestInfo(errorInfo);
-    }
-};
+REGISTER_SUITE(BlockchainTestEIPSuite, BlockchainTestInvalidSuite)
+REGISTER_SUITE(BlockchainTestPyspecSuite, BlockchainTestInvalidSuite)
+    REGISTER_SUITE(BlockchainTestPyspecSuite_frontier, BlockchainTestPyspecSuite)
+    REGISTER_SUITE(BlockchainTestPyspecSuite_homestead, BlockchainTestPyspecSuite)
+    REGISTER_SUITE(BlockchainTestPyspecSuite_istanbul, BlockchainTestPyspecSuite)
+    REGISTER_SUITE(BlockchainTestPyspecSuite_berlin, BlockchainTestPyspecSuite)
+    REGISTER_SUITE(BlockchainTestPyspecSuite_merge, BlockchainTestPyspecSuite)
+    REGISTER_SUITE(BlockchainTestPyspecSuite_shanghai, BlockchainTestPyspecSuite)
+    REGISTER_SUITE(BlockchainTestPyspecSuite_cancun, BlockchainTestPyspecSuite)
 
-class BCGeneralStateTestsVMSuite : public BCGeneralStateTestsSuite
-{
-public:
-    BCGeneralStateTestsVMSuite();
-    test::TestSuite::TestPath suiteFolder() const override;
-    test::TestSuite::FillerPath suiteFillerFolder() const override;
-};
+REGISTER_SUITE(BlockchainTestEIPPyspecSuite, BlockchainTestInvalidSuite)
+    REGISTER_SUITE(BlockchainTestEIPPyspecSuite_frontier, BlockchainTestEIPPyspecSuite)
+    REGISTER_SUITE(BlockchainTestEIPPyspecSuite_homestead, BlockchainTestEIPPyspecSuite)
+    REGISTER_SUITE(BlockchainTestEIPPyspecSuite_istanbul, BlockchainTestEIPPyspecSuite)
+    REGISTER_SUITE(BlockchainTestEIPPyspecSuite_berlin, BlockchainTestEIPPyspecSuite)
+    REGISTER_SUITE(BlockchainTestEIPPyspecSuite_merge, BlockchainTestEIPPyspecSuite)
+    REGISTER_SUITE(BlockchainTestEIPPyspecSuite_shanghai, BlockchainTestEIPPyspecSuite)
+    REGISTER_SUITE(BlockchainTestEIPPyspecSuite_cancun, BlockchainTestEIPPyspecSuite)
 
-/// Suite run/check stateTests converted into blockchain by testeth
-class LegacyConstantinopleBCGeneralStateTestsSuite : public BlockchainTestValidSuite
-{
-protected:
-    bool legacyTestSuiteFlag() const override { return  true; }
-public:
-    spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override;
-    test::TestSuite::TestPath suiteFolder() const override;
-    test::TestSuite::FillerPath suiteFillerFolder() const override;
-};
+REGISTER_SUITE(BCGeneralStateTestsSuite, BlockchainTestInvalidSuite)
+REGISTER_SUITE(BCGeneralStateTestsVMSuite, BCGeneralStateTestsSuite)
+REGISTER_SUITE(BCGeneralStateTestsShanghaiSuite, BCGeneralStateTestsSuite)
 
+REGISTER_SUITE(BCEIPStateTestsSuite, BlockchainTestValidSuite)
+REGISTER_SUITE(BCEIPStateTestsEOFSuite, BCEIPStateTestsSuite)
 
-class LegacyConstantinopleBlockchainInvalidTestSuite : public BlockchainTestInvalidSuite
-{
-protected:
-    bool legacyTestSuiteFlag() const override { return  true; }
-public:
-    spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override;
-    TestPath suiteFolder() const override
-    {
-        return TestSuite::TestPath(
-            fs::path("LegacyTests/Constantinople/BlockchainTests/InvalidBlocks"));
-    }
-    FillerPath suiteFillerFolder() const override
-    {
-        return TestSuite::FillerPath(
-            fs::path("/src/LegacyTests/Constantinople/BlockchainTestsFiller/InvalidBlocks"));
-    }
-};
+#define LEGACYFLAG  \
+    protected:      \
+        bool legacyTestSuiteFlag() const override { return  true; }
 
-class LegacyConstantinopleBlockchainValidTestSuite : public BlockchainTestValidSuite
-{
-protected:
-    bool legacyTestSuiteFlag() const override { return  true; }
-public:
-    spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override;
-    TestPath suiteFolder() const override
-    {
-        return TestSuite::TestPath(
-            fs::path("LegacyTests/Constantinople/BlockchainTests/ValidBlocks"));
-    }
-    FillerPath suiteFillerFolder() const override
-    {
-        return TestSuite::FillerPath(
-            fs::path("/src/LegacyTests/Constantinople/BlockchainTestsFiller/ValidBlocks"));
-    }
-};
+REGISTER_SUITE_OVERRIDE(LegacyConstantinopleBCGeneralStateTestsSuite, BlockchainTestValidSuite, LEGACYFLAG)
+REGISTER_SUITE_OVERRIDE(LegacyConstantinopleBlockchainInvalidTestSuite, BlockchainTestInvalidSuite, LEGACYFLAG)
+REGISTER_SUITE_OVERRIDE(LegacyConstantinopleBlockchainValidTestSuite, BlockchainTestValidSuite, LEGACYFLAG)
 
 }  // test

@@ -1,8 +1,6 @@
 #pragma once
 #include "../Base/StateTestEnvBase.h"
-#include <retesteth/dataObject/DataObject.h>
-using namespace dataobject;
-using namespace test::teststruct;
+#include <libdataobj/DataObject.h>
 
 namespace test
 {
@@ -16,10 +14,12 @@ struct StateTestEnv : StateTestEnvBase
     VALUE const& currentTimestamp() const override { return m_genesisTimestamp; }
     VALUE const& firstBlockTimestamp() const { return m_currentTimestamp; }
 
+protected:
+    void initializeFields(DataObject const&);
+
 private:
     spVALUE m_genesisTimestamp;
 };
-
 
 }  // namespace teststruct
 }  // namespace test

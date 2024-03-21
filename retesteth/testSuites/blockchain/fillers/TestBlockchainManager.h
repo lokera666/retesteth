@@ -5,9 +5,7 @@
 #include <string>
 #include <vector>
 
-namespace test
-{
-namespace blockchainfiller
+namespace test::blockchainfiller
 {
 // TestBlockchain class with chain reorgs
 class TestBlockchainManager
@@ -19,7 +17,7 @@ public:
         BlockchainTestFillerEnv const& _genesisEnv, State const& _genesisPre, SealEngine _engine, FORK const& _network);
 
     // Perform block generation logic by parsing the filler file section
-    void parseBlockFromFiller(BlockchainTestFillerBlock const& _block, bool _generateUncles);
+    std::vector<spDataObject> parseBlockFromFiller(BlockchainTestFillerBlock const& _block, bool _generateUncles);
 
     // Return the last block from the current chain (not the top of all chains)
     TestBlock const& getLastBlock();
@@ -27,23 +25,29 @@ public:
     // Import all generated blocks at the same order as they are in tests
     void syncOnRemoteClient(DataObject& _exportBlocksSection) const;
 
+    void performOptionCommandsOnGenesis();
+
+private:
+    std::vector<spDataObject> _generateBlocksFromFillerTestBlock(BlockchainTestFillerBlock const&, vectorOfSchemeBlock const&, bool _generateUncles);
+    void _makeTheFilledBlockFromFiller(BlockchainTestFillerBlock const&, vectorOfSchemeBlock const&, bool _generateUncles);
+
 private:
     // Reorg chains on the client if needed for _newBlock that potentially comes from another chain
     void reorgChains(BlockchainTestFillerBlock const& _newBlock);
 
     // Prepare uncles
-    vectorOfSchemeBlock prepareUncles(BlockchainTestFillerBlock const& _block, string const& _debug);
+    vectorOfSchemeBlock prepareUncles(BlockchainTestFillerBlock const& _block, std::string const& _debug);
 
     // Parse uncle section in block and generate uncles from all the chain information
     spBlockHeader prepareUncle(
         BlockchainTestFillerUncle _uncleOverwrite, vectorOfSchemeBlock const& _currentBlockPreparedUncles);
 
-    SessionInterface& m_session;  // session with the client
+    session::SessionInterface& m_session;  // session with the client
 
     std::string m_sCurrentChainName;        // Chain name that is mining blocks
     std::string const m_sDefaultChainName;  // Default chain name to restore genesis
 
-    BlockchainTestFillerEnv m_genesisEnv;  // Genesis Info
+    BlockchainTestFillerEnv const& m_genesisEnv;  // Genesis Info
     State m_genesisPre;
     SealEngine m_sealEngine;
 
@@ -61,4 +65,3 @@ private:
 };
 
 }  // namespace blockchainfiller
-}  // namespace test

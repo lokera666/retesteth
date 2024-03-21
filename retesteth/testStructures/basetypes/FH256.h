@@ -1,33 +1,23 @@
 #pragma once
 #include "FH.h"
-#include <retesteth/dataObject/DataObject.h>
-#include <retesteth/dataObject/SPointer.h>
-using namespace dataobject;
+#include <libdataobj/DataObject.h>
 
-namespace test
+namespace test::teststruct
 {
-namespace teststruct
-{
+
 struct FH256 : FH
 {
     FH256(dev::RLP const& _rlp) : FH(_rlp, 256) {}
-    FH256(DataObject const& _data) : FH(_data, 256) {}
-    FH256(string const& _data) : FH(_data, 256) {}
-    FH256* copy() const { return new FH256(asString()); }
+    FH256(dataobject::DataObject const& _data) : FH(_data, 256) {}
+    FH256(std::string const& _data) : FH(_data, 256) {}
+    FH256* copy() const;
 
-    static FH256 const& zero()
-    {
-        static FH256 zero(
-            "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            "0000000000000000000000000000000000000000000000000000000000");
-        return zero;
-    }
+    static FH256 const& zero();
 };
 
-typedef GCP_SPointer<FH256> spFH256;
+typedef dataobject::GCP_SPointer<FH256> spFH256;
+template <class T>
+spFH256 sFH256(T const& _arg) { return spFH256(new FH256(_arg)); }
+
 
 }  // namespace teststruct
-}  // namespace test

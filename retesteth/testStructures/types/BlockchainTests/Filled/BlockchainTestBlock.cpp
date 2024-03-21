@@ -1,10 +1,9 @@
 #include "BlockchainTestBlock.h"
 #include <retesteth/EthChecks.h>
 #include <retesteth/testStructures/Common.h>
+using namespace std;
 
-namespace test
-{
-namespace teststruct
+namespace test::teststruct
 {
 BlockchainTestBlock::BlockchainTestBlock(spDataObject& _data)
 {
@@ -14,7 +13,10 @@ BlockchainTestBlock::BlockchainTestBlock(spDataObject& _data)
             {{"rlp", {{DataType::String}, jsonField::Required}},
                 {"chainname", {{DataType::String}, jsonField::Optional}},    // User information
                 {"blocknumber", {{DataType::String}, jsonField::Optional}},  // User information
+                {"rlp_decoded", {{DataType::Object}, jsonField::Optional}},  // Decoding of invalid blocks
                 {"transactions", {{DataType::Array}, jsonField::Optional}},
+                {"withdrawals", {{DataType::Array}, jsonField::Optional}},
+                {"hasBigInt", {{DataType::String}, jsonField::Optional}},
                 {"transactionSequence", {{DataType::Array}, jsonField::Optional}},
                 {"uncleHeaders", {{DataType::Array}, jsonField::Optional}},
                 {"expectException", {{DataType::String}, jsonField::Optional}},                   // User information
@@ -29,6 +31,8 @@ BlockchainTestBlock::BlockchainTestBlock(spDataObject& _data)
                 {"expectExceptionIstanbul", {{DataType::String}, jsonField::Optional}},           // Legacy field
                 {"blockHeader", {{DataType::Object}, jsonField::Optional}}});
 
+        if (_data->count("expectException"))
+            m_exception = _data->atKey("expectException").asString();
         if (_data->count("chainname"))
             m_chainName = _data->atKey("chainname").asString();
         if (_data->count("blocknumber"))
@@ -41,7 +45,13 @@ BlockchainTestBlock::BlockchainTestBlock(spDataObject& _data)
             m_blockHeader = readBlockHeader(_data->atKey("blockHeader"));
 
             for (auto& tr : _data.getContent().atKeyUnsafe("transactions").getSubObjectsUnsafe())
-                m_transactions.push_back(readTransaction(dataobject::move(tr)));
+                m_transactions.emplace_back(readTransaction(dataobject::move(tr)));
+
+            if (_data->count("withdrawals"))
+            {
+                for (auto const& wt : _data->atKey("withdrawals").getSubObjects())
+                    m_withdrawals.emplace_back(spWithdrawal(new Withdrawal(wt)));
+            }
 
             if (_data->count("transactionSequence"))
             {
@@ -54,9 +64,37 @@ BlockchainTestBlock::BlockchainTestBlock(spDataObject& _data)
             }
 
             for (auto const& un : _data->atKey("uncleHeaders").getSubObjects())
-                m_uncles.push_back(readBlockHeader(un));
+                m_uncles.emplace_back(readBlockHeader(un));
         }
-        m_rlp = spBYTES(new BYTES(_data->atKey("rlp").asString()));
+        m_rlp = sBYTES(_data->atKey("rlp").asString());
+
+        if (_data->count("rlp_decoded"))
+        {
+            if (_data->count("blockHeader"))
+                ETH_ERROR_MESSAGE("Invalid block has blockHeader outside of rlp_decoded!");
+            if (_data->count("transactions"))
+                ETH_ERROR_MESSAGE("Invalid block has transactions outside of rlp_decoded!");
+            if (_data->count("uncleHeaders"))
+                ETH_ERROR_MESSAGE("Invalid block has uncles outside of rlp_decoded!");
+            if (_data->count("withdrawals"))
+                ETH_ERROR_MESSAGE("Invalid block has withdrawals outside of rlp_decoded!");
+
+            auto& rlpDecoded = _data.getContent().atKeyUnsafe("rlp_decoded");
+            m_hasRlpDecoded = true;
+            REQUIRE_JSONFIELDS(rlpDecoded, "BlockchainTestBlock::rlp_decoded",
+            {{"blockHeader", {{DataType::Object}, jsonField::Required}},
+             {"transactions", {{DataType::Array}, jsonField::Required}},
+             {"uncleHeaders", {{DataType::Array}, jsonField::Required}},
+            {"withdrawals", {{DataType::Array}, jsonField::Required}}});
+
+            m_blockHeader = readBlockHeader(rlpDecoded.atKey("blockHeader"));
+            for (auto& el : rlpDecoded.atKeyUnsafe("transactions").getSubObjectsUnsafe())
+                m_transactions.emplace_back(readTransaction(dataobject::move(el)));
+            for (auto const& el : rlpDecoded.atKey("uncleHeaders").getSubObjects())
+                m_uncles.emplace_back(readBlockHeader(el));
+            for (auto const& el : rlpDecoded.atKey("withdrawals").getSubObjects())
+                m_withdrawals.emplace_back(spWithdrawal(new Withdrawal(el)));
+        }
     }
     catch (std::exception const& _ex)
     {
@@ -65,4 +103,3 @@ BlockchainTestBlock::BlockchainTestBlock(spDataObject& _data)
 }
 
 }  // namespace teststruct
-}  // namespace test

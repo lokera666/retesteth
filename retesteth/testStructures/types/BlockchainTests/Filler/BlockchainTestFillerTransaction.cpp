@@ -1,13 +1,11 @@
 #include "BlockchainTestFillerTransaction.h"
 #include <retesteth/EthChecks.h>
-#include <retesteth/TestHelper.h>
 #include <retesteth/testStructures/Common.h>
 
 #include <libdevcrypto/Common.h>
+using namespace std;
 
-namespace test
-{
-namespace teststruct
+namespace test::teststruct
 {
 BlockchainTestFillerTransaction::BlockchainTestFillerTransaction(spDataObjectMove _data, NonceMap& _nonceMap)
 {
@@ -34,6 +32,15 @@ BlockchainTestFillerTransaction::BlockchainTestFillerTransaction(spDataObjectMov
 
         (*rawData).removeKey("expectException");
         convertDecTransactionToHex(rawData);
+
+        // Translate secretKey to public key before parsing the transaction
+        if (rawData->count("secretKey") && !rawData->count("sender"))
+        {
+            // TODO if FH32 initialization throw here, it wont end up with the correct message in catch
+            spFH32 secret(new FH32(rawData->atKey("secretKey").asString()));
+            (*rawData)["sender"] = convertSecretToPublic(secret)->asString();
+        }
+
         m_transaction = readTransaction(dataobject::move(rawData));
     }
     catch (std::exception const& _ex)
@@ -44,4 +51,3 @@ BlockchainTestFillerTransaction::BlockchainTestFillerTransaction(spDataObjectMov
 }
 
 }  // namespace teststruct
-}  // namespace test

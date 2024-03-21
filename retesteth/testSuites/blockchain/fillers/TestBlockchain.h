@@ -1,14 +1,12 @@
 #pragma once
 #include "TestBlock.h"
-#include <retesteth/TestOutputHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <retesteth/session/Session.h>
 #include <retesteth/testStructures/Common.h>
 #include <string>
 #include <vector>
 
-namespace test
-{
-namespace blockchainfiller
+namespace test::blockchainfiller
 {
 // Used to tell remote client to reset chain params on another network
 enum class RegenerateGenesis
@@ -24,7 +22,8 @@ public:
     // Single blockchain with block rlps, keep track of a blockchain information
     // Using _env, _pre, _engine, _network settings
     TestBlockchain(BlockchainTestFillerEnv const& _testEnv, State const& _genesisState, SealEngine _engine,
-        FORK const& _network, string const& _chainName, RegenerateGenesis _regenerateGenesis);
+        FORK const& _network, std::string const& _chainName, RegenerateGenesis _regenerateGenesis);
+    ~TestBlockchain();
 
     // Need to call resetChainParams because TestBLockchainManager could have chains with different networks
     void resetChainParams() const;
@@ -33,20 +32,22 @@ public:
 
     // Restore this chain on remote client up to < _number block
     // Restore chain up to _number of blocks. if _number is 0 restore the whole chain
-    void restoreUpToNumber(SessionInterface& _session, VALUE const& _number, bool _samechain);
+    void restoreUpToNumber(session::SessionInterface& _session, VALUE const& _number, bool _samechain);
 
     std::vector<TestBlock> const& getBlocks() const { return m_blocks; }
 
     std::string const& getChainName() const { return m_chainName; }
 
     // Prepare errorinfo about block number and chain name
-    string prepareDebugInfoString(std::string const& _newBlockChainName);
+    std::string prepareDebugInfoString(std::string const& _newBlockChainName);
 
     FORK const& getNetwork() const { return m_network; }
 
     // Verify post-import exceptin according to expectException section in test
     // Return true if block is valid, false if block is not valid
-    bool checkBlockException(string const& _sBlockException) const;
+    static bool checkBlockException(session::SessionInterface const& _session, std::string const& _sBlockException);
+
+    void performOptionCommandsOnGenesis();
 
 private:
     // Ask remote client to generate a blockheader that will later used for uncles
@@ -55,14 +56,15 @@ private:
     // Mine the test block on remote client.
     // if blockheader is tweaked or there are uncles, postmine tweak this and reimport
     GCP_SPointer<EthGetBlockBy> mineBlock(
-        BlockchainTestFillerBlock const& _block, vectorOfSchemeBlock const& _preparedUncleBlocks, BYTES& _rawRLP);
+        BlockchainTestFillerBlock const& _block, vectorOfSchemeBlock const& _preparedUncleBlocks, BYTES& _rawRLP,
+        bool _isTest = false);
 
     // After test_mineBlock we can change the blockheader or add uncles. that will require to tweak
     // the block And reimport it again, then check exceptions
     FH32 postmineBlockHeader(BlockchainTestFillerBlock const& _block, VALUE const& _latestBlockNumber,
         std::vector<spBlockHeader> const& _uncles, BYTES& _rawRLP);
 
-    SessionInterface& m_session;                      // Session with the client
+    session::SessionInterface& m_session;             // Session with the client
     FORK m_network;                                   // Forkname in genesis
     SealEngine m_sealEngine;                          // Chain seal engine information
     BlockchainTestFillerEnv const& m_testEnv;         // Chain genesis data information
@@ -73,7 +75,22 @@ private:
     std::string m_chainName;          // Name of this chain
     std::vector<TestBlock> m_blocks;  // List of blocks
     // std::vector<TestBlock> m_knownBlocks;       // List of fork block RLPs
+private:
+    void _tryIntermidiatePostState(BlockchainTestFillerBlock const&, vectorOfSchemeBlock const&);
+    void _performStatediff(size_t _blockNumber, size_t _txNumber);
+
+    void _generateBlock_RawBlock(BlockchainTestFillerBlock const& _block);
+    void _generateBlock_ImportTransactionsOnRemoteClient(BlockchainTestFillerBlock const& _block,
+        vectorOfSchemeBlock const& _uncles);
+    void _generateBlock_RegisterInvalidBlock(BlockchainTestFillerBlock const& _block, BYTES const& _rawRLP);
+    void _generateBlock_RegisterTestTransactions(BlockchainTestFillerBlock const& _block, TestBlock& _newBlock, spEthGetBlockBy);
+
+    void _mineBlock_importWithdrawals(BlockchainTestFillerBlock const&);
+
+private:
+    bool m_triedStateDiff = false;
+    spState m_stateDiffStateA;
+    spState m_stateDiffStateB;
 };
 
-}  // namespace blockchainfiller
-}  // namespace test
+}  // namespace test::blockchainfiller

@@ -1,17 +1,18 @@
-#include <cstdio>
-#include <thread>
-
-#include <dataObject/ConvertFile.h>
+#include <libdataobj/ConvertFile.h>
 #include <retesteth/EthChecks.h>
 #include <retesteth/ExitHandler.h>
-#include <retesteth/TestHelper.h>
+#include <retesteth/Options.h>
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <retesteth/session/RPCImpl.h>
 #include <retesteth/session/Session.h>
-#include <retesteth/testStructures/Common.h>
-#include <retesteth/Options.h>
 
+using namespace std;
 using namespace test;
+using namespace test::debug;
 
+namespace test::session
+{
 spDataObject RPCImpl::web3_clientVersion()
 {
     return rpcCall("web3_clientVersion", {});
@@ -23,7 +24,10 @@ FH32 RPCImpl::eth_sendRawTransaction(BYTES const& _rlp, VALUE const& _secret)
     (void)_secret;
     spDataObject const result = rpcCall("eth_sendRawTransaction", {quote(_rlp.asString())}, true);
     if (!m_lastInterfaceError.empty())
-        ETH_ERROR_MESSAGE(m_lastInterfaceError.message());
+    {
+        ETH_WARNING("eth_sendRawTransaction:: " + m_lastInterfaceError.message());
+        return FH32::zero();
+    }
     return FH32(result.getCContent());
 }
 
@@ -49,20 +53,20 @@ VALUE RPCImpl::eth_blockNumber()
     return VALUE(rpcCall("eth_blockNumber", {}).getCContent());
 }
 
-EthGetBlockBy RPCImpl::eth_getBlockByHash(FH32 const& _hash, Request _fullObjects)
+spEthGetBlockBy RPCImpl::eth_getBlockByHash(FH32 const& _hash, Request _fullObjects)
 {
     spDataObject response = rpcCall("eth_getBlockByHash", {quote(_hash.asString()), _fullObjects == Request::FULLOBJECTS ? "true" : "false"});
     ClientConfig const& cfg = Options::getCurrentConfig();
     cfg.performFieldReplace(*response, FieldReplaceDir::ClientToRetesteth);
-    return EthGetBlockBy(response);
+    return spEthGetBlockBy(new EthGetBlockBy(response));
 }
 
-EthGetBlockBy RPCImpl::eth_getBlockByNumber(VALUE const& _blockNumber, Request _fullObjects)
+spEthGetBlockBy RPCImpl::eth_getBlockByNumber(VALUE const& _blockNumber, Request _fullObjects)
 {
     spDataObject response = rpcCall("eth_getBlockByNumber", {quote(_blockNumber.asString()), _fullObjects == Request::FULLOBJECTS ? "true" : "false"});
     ClientConfig const& cfg = Options::getCurrentConfig();
     cfg.performFieldReplace(*response, FieldReplaceDir::ClientToRetesteth);
-    return EthGetBlockBy(response);
+    return spEthGetBlockBy(new EthGetBlockBy(response));
 }
 
 spBYTES RPCImpl::eth_getCode(FH20 const& _address, VALUE const& _blockNumber)
@@ -70,7 +74,7 @@ spBYTES RPCImpl::eth_getCode(FH20 const& _address, VALUE const& _blockNumber)
     spDataObject res = rpcCall("eth_getCode", {quote(_address.asString()), quote(_blockNumber.asString())});
     if (res->asString().empty())
     {
-        ETH_WARNING_TEST("eth_getCode return `` empty string, correct to `0x` empty bytes ", 6);
+        ETH_DC_MESSAGE(DC::LOWLOG, "eth_getCode return `` empty string, correct to `0x` empty bytes ");
         return spBYTES(new BYTES(DataObject("0x")));
     }
     return spBYTES(new BYTES(res));
@@ -120,11 +124,17 @@ DebugVMTrace RPCImpl::debug_traceTransaction(FH32 const& _trHash)
 {
     (void)_trHash;
     ETH_FAIL_MESSAGE("RPCImpl::debug_traceTransaction is not implemented!");
-    static DebugVMTrace empty("", "", FH32::zero(), "");
+    static DebugVMTrace empty;
     return empty;
 }
 
 // Test
+void RPCImpl::test_setChainParamsNoGenesis(spSetChainParamsArgs const& _config)
+{
+    (void) _config;
+    ETH_FAIL_MESSAGE("RPCImpl::test_setChainParamsNoGenesis is not implemented!");
+}
+
 void RPCImpl::test_setChainParams(spSetChainParamsArgs const& _config)
 {
     RPCSession::currentCfgCountTestRun();
@@ -134,7 +144,7 @@ void RPCImpl::test_setChainParams(spSetChainParamsArgs const& _config)
     cfg.performFieldReplace(*data, FieldReplaceDir::RetestethToClient);
 
     spDataObject res =  rpcCall("test_setChainParams", {data->asJson()});
-    ETH_FAIL_REQUIRE_MESSAGE(*res == true, "remote test_setChainParams = false");
+    ETH_ERROR_REQUIRE_MESSAGE(*res == true, "remote test_setChainParams = false");
 }
 
 void RPCImpl::test_rewindToBlock(VALUE const& _blockNr)
@@ -174,7 +184,7 @@ FH32 RPCImpl::test_importRawBlock(BYTES const& _blockRLP)
     spDataObject const res = rpcCall("test_importRawBlock", {quote(_blockRLP.asString())}, true);
     if (res->type() == DataType::String && res->asString().size() > 2)
         return FH32(res->asString());
-    return FH32(FH32::zero());
+    return FH32::zero();
 }
 
 FH32 RPCImpl::test_getLogHash(FH32 const& _txHash)
@@ -182,10 +192,24 @@ FH32 RPCImpl::test_getLogHash(FH32 const& _txHash)
     return FH32(rpcCall("test_getLogHash", {quote(_txHash.asString())}));
 }
 
+void RPCImpl::test_registerWithdrawal(BYTES const& _rlp)
+{
+    (void) _rlp;
+    ETH_FAIL_MESSAGE("RPCImpl::test_registerWithdrawal is not implemented!");
+}
+
 TestRawTransaction RPCImpl::test_rawTransaction(BYTES const& _rlp, FORK const& _fork)
 {
     spDataObject const res = rpcCall("test_rawTransaction", {quote(_rlp.asString()), quote(_fork.asString())});
     return TestRawTransaction(res);
+}
+
+std::string RPCImpl::test_rawEOFCode(BYTES const& _code, FORK const& _fork)
+{
+    (void) _code;
+    (void) _fork;
+    ETH_FAIL_MESSAGE("RPCImpl::test_rawEOFCode is not implemented!");
+    return string();
 }
 
 VALUE RPCImpl::test_calculateDifficulty(FORK const& _fork, VALUE const& _blockNumber, VALUE const& _parentTimestamp,
@@ -222,12 +246,12 @@ spDataObject RPCImpl::rpcCall(
 
     request += "],\"id\":" + to_string(m_rpcSequence++) + "}";
 
-    ETH_TEST_MESSAGE("Request: " + request);
+    ETH_DC_MESSAGE(DC::RPC, "Request: " + request);
     JsonObjectValidator validator;  // read response while counting `{}`
     string reply = m_socket.sendRequest(request, validator);
-    ETH_TEST_MESSAGE("Reply: `" + reply + "`");
+    ETH_DC_MESSAGE(DC::RPC, "Reply: `" + reply + "`");
 
-    spDataObject result = ConvertJsoncppStringToData(reply, string(), false);
+    spDataObject result = ConvertJsoncppStringToData(reply);
     if (result->count("error"))
         (*result)["result"] = "";
 
@@ -236,8 +260,9 @@ spDataObject RPCImpl::rpcCall(
         REQUIRE_JSONFIELDS(result, "rpcCall_response (req: '" + request.substr(0, 70) + "')",
             {{"jsonrpc", {{DataType::String}, jsonField::Required}},
              {"id", {{DataType::Integer}, jsonField::Required}},
-             {"result", {{DataType::String, DataType::Integer, DataType::Bool, DataType::Object, DataType::Array},
-                               jsonField::Required}},
+             {"result", {{DataType::String, DataType::Integer,
+                          DataType::Bool, DataType::Object, DataType::Array},
+                        jsonField::Required}},
              {"error", {{DataType::String, DataType::Object}, jsonField::Optional}}});
     }
     else
@@ -272,3 +297,5 @@ std::string const& RPCImpl::getSocketPath() const
 {
     return m_socket.path();
 }
+
+}  // namespace test::session

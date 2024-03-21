@@ -18,18 +18,15 @@
  * Unit tests for ethObjects functions.
  */
 
-#include <retesteth/TestOutputHelper.h>
-#include <retesteth/dataObject/ConvertFile.h>
-#include <retesteth/testStructures/Common.h>
-#include <retesteth/testStructures/configs/ClientConfigFile.h>
-#include <retesteth/testStructures/types/ethereum.h>
+#include <libdataobj/ConvertFile.h>
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <retesteth/testSuites/Common.h>
-#include <boost/test/unit_test.hpp>
-#include <thread>
 
 using namespace std;
 using namespace dev;
 using namespace test;
+using namespace test::debug;
 using namespace test::teststruct;
 
 BOOST_FIXTURE_TEST_SUITE(EthObjectsSuite, TestOutputHelperFixture)
@@ -243,6 +240,43 @@ BOOST_AUTO_TEST_CASE(object_stringIntegerType_otherTypes)
     BOOST_CHECK(stringIntegerType("11223344abcdeffzz") == DigitsType::String);
 }
 
+BOOST_AUTO_TEST_CASE(object_stringIntegerType)
+{
+    BOOST_CHECK(test::stringIntegerType("0") == DigitsType::Decimal);
+    BOOST_CHECK(test::stringIntegerType("0123") == DigitsType::Decimal);
+    BOOST_CHECK(test::stringIntegerType("00123") == DigitsType::Decimal);
+    BOOST_CHECK(test::stringIntegerType("123") == DigitsType::Decimal);
+
+    BOOST_CHECK(test::stringIntegerType("12a3") == DigitsType::Hex);
+    BOOST_CHECK(test::stringIntegerType("02a3") == DigitsType::Hex);
+    BOOST_CHECK(test::stringIntegerType("00a3") == DigitsType::Hex);
+
+    BOOST_CHECK(test::stringIntegerType("0x12a3") == DigitsType::HexPrefixed);
+    BOOST_CHECK(test::stringIntegerType("0x02a3") == DigitsType::HexPrefixed);
+    BOOST_CHECK(test::stringIntegerType("0x00a3") == DigitsType::HexPrefixed);
+    BOOST_CHECK(test::stringIntegerType("0x12a3", true) == DigitsType::Hex);
+    BOOST_CHECK(test::stringIntegerType("0x02a3", true) == DigitsType::Hex);
+    BOOST_CHECK(test::stringIntegerType("0x00a3", true) == DigitsType::Hex);
+
+    BOOST_CHECK(test::stringIntegerType("2a3") == DigitsType::UnEvenHex);
+    BOOST_CHECK(test::stringIntegerType("0a3") == DigitsType::UnEvenHex);
+    BOOST_CHECK(test::stringIntegerType("00a") == DigitsType::UnEvenHex);
+    BOOST_CHECK(test::stringIntegerType("2a3", true) == DigitsType::Decimal);
+    BOOST_CHECK(test::stringIntegerType("0a3", true) == DigitsType::Decimal);
+    BOOST_CHECK(test::stringIntegerType("00a", true) == DigitsType::UnEvenHex);
+
+    BOOST_CHECK(test::stringIntegerType("0x2a3") == DigitsType::UnEvenHexPrefixed);
+    BOOST_CHECK(test::stringIntegerType("0x0a3") == DigitsType::UnEvenHexPrefixed);
+    BOOST_CHECK(test::stringIntegerType("0x00a") == DigitsType::UnEvenHexPrefixed);
+    BOOST_CHECK(test::stringIntegerType("0x2a3", true) == DigitsType::UnEvenHex);
+    BOOST_CHECK(test::stringIntegerType("0x0a3", true) == DigitsType::UnEvenHex);
+    BOOST_CHECK(test::stringIntegerType("0x00a", true) == DigitsType::UnEvenHex);
+
+    BOOST_CHECK(test::stringIntegerType("0x2s3") == DigitsType::String);
+    BOOST_CHECK(test::stringIntegerType("2s3") == DigitsType::String);
+    BOOST_CHECK(test::stringIntegerType("0a3s") == DigitsType::String);
+    BOOST_CHECK(test::stringIntegerType("000as") == DigitsType::String);
+}
 
 void testCompareResult(spDataObject& _exp, spDataObject& _post, CompareResult _expResult, size_t _errCount = 2)
 {
@@ -468,7 +502,8 @@ BOOST_AUTO_TEST_CASE(compareStates_storageMissingOnExpect)
 void ExpectVsPost(string const& _expectKey, string const& _expectVal, string const& _postKey, string const& _postVal,
     CompareResult _res, string const& _doubleVal = "0x02", size_t _errCount = 2)
 {
-    ETH_LOG("Exp(" + _expectKey + ":" + _expectVal + ") vs Post(" + _postKey + "," + _postVal + ") dd: " + _doubleVal, 0);
+    ETH_DC_MESSAGE(
+        DC::DEFAULT, "Exp(" + _expectKey + ":" + _expectVal + ") vs Post(" + _postKey + "," + _postVal + ") dd: " + _doubleVal);
     spDataObject expectStorage(new DataObject(DataType::Object));
     if (_expectKey != "--")
         (*expectStorage)[_expectKey] = _expectVal;

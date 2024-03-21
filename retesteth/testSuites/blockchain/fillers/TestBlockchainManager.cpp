@@ -1,6 +1,8 @@
 #include "TestBlockchainManager.h"
-#include <string>
+#include <retesteth/helpers/TestHelper.h>
 using namespace std;
+using namespace test::debug;
+using namespace test::session;
 
 namespace test
 {
@@ -25,10 +27,73 @@ TestBlockchainManager::TestBlockchainManager(
         TestBlockchain(_genesisEnv, _genesisPre, _engine, _network, m_sCurrentChainName, RegenerateGenesis::TRUE));
 }
 
-// Generate block using a client from the filler information
-void TestBlockchainManager::parseBlockFromFiller(BlockchainTestFillerBlock const& _block, bool _generateUncles)
+// Generate the block
+void TestBlockchainManager::_makeTheFilledBlockFromFiller(BlockchainTestFillerBlock const& _block, vectorOfSchemeBlock const& _unclesPrepared, bool _generateUncles)
 {
-    ETH_LOGC("STARTING A NEW BLOCK: ", 6, LogColor::LIME);
+    TestBlockchain& currentChainMining = getCurrentChain();
+    currentChainMining.generateBlock(_block, _unclesPrepared, _generateUncles);
+
+    // Remeber the generated block in exact order as in the test
+    TestBlock const& lastBlock = getLastBlock();
+
+    // Get this block exception on canon chain to later verify it
+    FORK const& canonNet = getDefaultChain().getNetwork();
+    m_testBlockRLPs.emplace_back(std::make_tuple(lastBlock.getRawRLP(), _block.getExpectException(canonNet)));
+}
+
+std::vector<spDataObject> TestBlockchainManager::_generateBlocksFromFillerTestBlock(BlockchainTestFillerBlock const& _block, vectorOfSchemeBlock const& _unclesPrepared, bool _generateUncles)
+{
+    std::vector<spDataObject> blockJsons;
+    TestBlockchain& currentChainMining = getCurrentChain();
+    std::vector<BlockchainTestFillerTransaction const*> validTransactions;
+
+    for (BlockchainTestFillerTransaction const& tr : _block.transactions())
+    {
+        // If not exception on current chain network, build a valid transacions
+        auto const& currentFork = currentChainMining.getNetwork();
+        auto const& trException = tr.getExpectException(currentFork);
+        if (trException.empty())
+        {
+            validTransactions.emplace_back(&tr);
+        }
+        else
+        {
+            BlockchainTestFillerBlock validBlockSoFar(_block, true);
+
+            if (!_block.isDoNotStackValidTrxs())
+                for (auto const& tr : validTransactions)
+                    validBlockSoFar.addTransaction(*tr);
+
+            // add next invalid transaction
+            validBlockSoFar.addTransaction(tr);
+            validBlockSoFar.addException(currentFork, trException);
+
+            _makeTheFilledBlockFromFiller(validBlockSoFar, _unclesPrepared, _generateUncles);
+
+            // If block is not disabled for testing purposes
+            // Get the json output of a constructed block for the test (includes rlp)
+            if (!getLastBlock().isDoNotExport())
+                blockJsons.emplace_back(getLastBlock().asDataObject());
+        }
+    }
+
+    // Make the last block of only valid transactions
+    BlockchainTestFillerBlock validBlockSoFar(_block, true);
+    for (auto const& tr : validTransactions)
+        validBlockSoFar.addTransaction(*tr);
+    _makeTheFilledBlockFromFiller(validBlockSoFar, _unclesPrepared, _generateUncles);
+
+    // If block is not disabled for testing purposes
+    // Get the json output of a constructed block for the test (includes rlp)
+    if (!getLastBlock().isDoNotExport())
+        blockJsons.emplace_back(getLastBlock().asDataObject());
+    return blockJsons;
+}
+
+// Generate block using a client from the filler information
+std::vector<spDataObject> TestBlockchainManager::parseBlockFromFiller(BlockchainTestFillerBlock const& _block, bool _generateUncles)
+{
+    ETH_DC_MESSAGEC(DC::RPC, "STARTING A NEW BLOCK: ", LogColor::LIME);
 
     // See if chain reorg is needed. ex: new fork, or remine block
     reorgChains(_block);
@@ -49,6 +114,18 @@ void TestBlockchainManager::parseBlockFromFiller(BlockchainTestFillerBlock const
     // Generate UncleHeaders if we need it
     vectorOfSchemeBlock unclesPrepared = _generateUncles ? prepareUncles(_block, sDebug) : vectorOfSchemeBlock();
 
+    size_t invalidTxs = 0;
+    for (auto const& tr : _block.transactions())
+    {
+        auto const& currentFork = currentChainMining.getNetwork();
+        auto const& trException = tr.getExpectException(currentFork);
+        if (!trException.empty() && _block.getExpectException(currentFork).empty() && ++invalidTxs == 2)
+        {
+            ETH_DC_MESSAGE(DC::STATS2, "Block has multiple invalid transactions, will construct many test blocks instead of tr sequence!");
+            return _generateBlocksFromFillerTestBlock(_block, unclesPrepared, _generateUncles);
+        }
+    }
+
     // Generate the block
     currentChainMining.generateBlock(_block, unclesPrepared, _generateUncles);
 
@@ -57,7 +134,10 @@ void TestBlockchainManager::parseBlockFromFiller(BlockchainTestFillerBlock const
 
     // Get this block exception on canon chain to later verify it
     FORK const& canonNet = getDefaultChain().getNetwork();
-    m_testBlockRLPs.push_back(std::make_tuple(lastBlock.getRawRLP(), _block.getExpectException(canonNet)));
+    m_testBlockRLPs.emplace_back(std::make_tuple(lastBlock.getRawRLP(), _block.getExpectException(canonNet)));
+    if (!lastBlock.isDoNotExport())
+        return {lastBlock.asDataObject()};
+    return {};
 }
 
 TestBlockchain& TestBlockchainManager::getDefaultChain()
@@ -86,7 +166,7 @@ void TestBlockchainManager::syncOnRemoteClient(DataObject& _exportBlocksSection)
     if (m_wasAtLeastOneFork)
     {
         // !!! RELY ON _exportBlocksSection has the same block order as m_testBlockRLPs
-        ETH_LOGC("IMPORT KNOWN BLOCKS ", 6, LogColor::LIME);
+        ETH_DC_MESSAGEC(DC::RPC, "IMPORT KNOWN BLOCKS ", LogColor::LIME);
         TestBlockchain const& chain = m_mapOfKnownChain.at(m_sDefaultChainName);
         chain.resetChainParams();  // restore canon chain of the test
         size_t ind = 0;
@@ -96,7 +176,7 @@ void TestBlockchainManager::syncOnRemoteClient(DataObject& _exportBlocksSection)
 
             m_session.test_importRawBlock(std::get<0>(rlpAndException));
             string const& canonExcept = std::get<1>(rlpAndException);
-            bool isValid = chain.checkBlockException(canonExcept);  // Check on canon exception
+            bool isValid = chain.checkBlockException(m_session, canonExcept);  // Check on canon exception
             if (!isValid)
             {
                 DataObject& testObj = _exportBlocksSection.atUnsafe(ind);
@@ -115,11 +195,11 @@ void TestBlockchainManager::syncOnRemoteClient(DataObject& _exportBlocksSection)
 
 vectorOfSchemeBlock TestBlockchainManager::prepareUncles(BlockchainTestFillerBlock const& _block, string const& _debug)
 {
-    ETH_LOGC("Prepare Uncles for the block: " + _debug, 6, LogColor::YELLOW);
+    ETH_DC_MESSAGEC(DC::RPC, "Prepare Uncles for the block: " + _debug, LogColor::YELLOW);
     vectorOfSchemeBlock preparedUncleBlocks;  // Prepared uncles for the current block
     // return block header using uncle overwrite section on uncles array from test
     for (auto const& uncle : _block.uncles())
-        preparedUncleBlocks.push_back(prepareUncle(uncle, preparedUncleBlocks));
+        preparedUncleBlocks.emplace_back(prepareUncle(uncle, preparedUncleBlocks));
     return preparedUncleBlocks;
 }
 
@@ -160,7 +240,8 @@ void TestBlockchainManager::reorgChains(BlockchainTestFillerBlock const& _block)
     if (!sameChain || blockNumberHasDecreased)
     {
         m_wasAtLeastOneFork = true;
-        ETH_LOGC("PERFORM REWIND HISTORY:  (current: " + m_sCurrentChainName + ", new: " + newBlockChainName + ")", 6,
+        ETH_DC_MESSAGEC(DC::RPC,
+            "PERFORM REWIND HISTORY:  (current: " + m_sCurrentChainName + ", new: " + newBlockChainName + ")",
             LogColor::YELLOW);
 
         TestBlockchain& chain = m_mapOfKnownChain.at(newBlockChainName);
@@ -198,6 +279,10 @@ spBlockHeader TestBlockchainManager::prepareUncle(
         size_t sameAsPreviuousBlockUncle = _uncleSectionInTest.sameAsPreviousBlockUncle();
         ETH_ERROR_REQUIRE_MESSAGE(currentChainMining.getBlocks().size() > sameAsPreviuousBlockUncle,
             "Trying to copy uncle from unregistered block with sameAsPreviuousBlockUncle!");
+
+        if (!currentChainMining.getBlocks().at(sameAsPreviuousBlockUncle).isThereTestHeader())
+            ETH_FAIL_MESSAGE("SameAsPreviousBlockUncle::Trying to get Uncles from invalid block#" +  test::fto_string(sameAsPreviuousBlockUncle));
+
         ETH_ERROR_REQUIRE_MESSAGE(
             currentChainMining.getBlocks().at(sameAsPreviuousBlockUncle).getUncles().size() > 0,
             "Previous block has no uncles!");
@@ -268,6 +353,12 @@ spBlockHeader TestBlockchainManager::prepareUncle(
     // Recalculate uncleHash because we will be checking which uncle hash will be returned by the client
     uncleBlockHeader.getContent().recalculateHash();
     return uncleBlockHeader;
+}
+
+void TestBlockchainManager::performOptionCommandsOnGenesis()
+{
+    TestBlockchain& currentChainMining = getCurrentChain();
+    currentChainMining.performOptionCommandsOnGenesis();
 }
 
 }  // namespace blockchainfiller

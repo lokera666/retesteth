@@ -22,19 +22,21 @@
 
 #include "Session.h"
 
-#include <thread>
-#include <retesteth/EthChecks.h>
+#include <retesteth/ExitHandler.h>
 #include <retesteth/Options.h>
-#include <retesteth/TestHelper.h>
-#include <retesteth/configs/ClientConfig.h>
+#include <retesteth/helpers/TestHelper.h>
 #include <retesteth/session/RPCImpl.h>
 #include <retesteth/session/ToolImpl.h>
-#include <retesteth/ExitHandler.h>
+#include <csignal>
 
 using namespace std;
 using namespace dev;
 using namespace test;
+using namespace test::debug;
+namespace fs = boost::filesystem;
 
+namespace test::session
+{
 struct sessionInfo
 {
     sessionInfo(FILE* _pipe, RPCSession* _session, std::string const& _tmpDir, int _pid, ClientConfigID const& _configId)
@@ -72,9 +74,9 @@ void RPCSession::runNewInstanceOfAClient(thread::id const& _threadID, ClientConf
 
         string command = "bash";
         std::vector<string> args;
-        args.push_back(_config.getShellPath().c_str());
-        args.push_back(tmpDir.string());
-        args.push_back(ipcPath);
+        args.emplace_back(_config.getShellPath().c_str());
+        args.emplace_back(tmpDir.string());
+        args.emplace_back(ipcPath);
 
         int pid = 0;
         test::popenOutput mode =
@@ -124,7 +126,7 @@ void RPCSession::runNewInstanceOfAClient(thread::id const& _threadID, ClientConf
             {
                 sessionInfo info(
                     NULL, new RPCSession(new RPCImpl(Socket::SocketType::TCP, addr.asString())), "", 0, _config.getId());
-                ETH_LOG("addr: " + addr.asString(), 2);
+                ETH_DC_MESSAGE(DC::RPC, "addr: " + addr.asString());
                 socketMap.insert(std::pair<thread::id, sessionInfo>(_threadID, std::move(info)));
                 return;
             }
@@ -200,7 +202,7 @@ void RPCSession::restartScripts(bool _stop)
             if (fs::exists(curCFG.getStopperScript().c_str()))
             {
                 // Close all active connection listeners
-                ETH_LOG("Restart Client Scripts...", 1);
+                ETH_DC_MESSAGE(DC::RPC, "Restart Client Scripts...");
                 RPCSession::clear();
             }
         };
@@ -223,14 +225,15 @@ void RPCSession::restartScripts(bool _stop)
         size_t const threads = Options::get().threadCount;
         string const start = curCFG.getStartScript().c_str();
         auto cmd = [](string const& _cmd, string const& _args) {
-            test::executeCmd(_cmd + " " + _args, ExecCMDWarning::NoWarning);
+            int exitCode;
+            test::executeCmd(_cmd + " " + _args, exitCode, ExecCMDWarning::NoWarning);
         };
         switch (curCFG.cfgFile().socketType())
         {
         case ClientConfgSocketType::TCP:
         {
             thread task(cmd, start, test::fto_string(threads) + " 2>/dev/null");
-            ETH_LOG(start, 1);
+            ETH_DC_MESSAGE(DC::RPC, start);
             task.detach();
             size_t const initTime = curCFG.cfgFile().initializeTime();
             size_t const seconds = Options::get().lowcpu ? initTime * 5 : initTime;
@@ -277,9 +280,14 @@ SessionInterface& RPCSession::instance(thread::id const& _threadID)
     if (needToCreateNew)
     {
         size_t const threadID = std::hash<std::thread::id>()(_threadID);
-        ETH_LOG("Run new connection session for `" + test::fto_string(threadID) + "`", 2);
+        ETH_DC_MESSAGE(DC::SOCKET, "Run new connection session for `" + test::fto_string(threadID) + "`");
         runNewInstanceOfAClient(_threadID, Options::getDynamicOptions().getCurrentConfig());
-        ETH_LOG("New instance started", 2);
+        ETH_DC_MESSAGE(DC::SOCKET, "New instance started");
+        if (!Options::get().checkhash && socketMap.count(_threadID))
+        {
+            auto& impl = socketMap.at(_threadID).session.get()->getImplementation();
+            ETH_DC_MESSAGE(DC::STATS, "Instantiated: " + impl.web3_clientVersion()->asJson(0, false));
+        }
     }
 
     ETH_FAIL_REQUIRE_MESSAGE(socketMap.size() <= Options::get().threadCount,
@@ -334,10 +342,8 @@ void RPCSession::clear()
     std::lock_guard<std::mutex> lock(g_socketMapMutex);
     std::vector<thread> closingThreads;
     for (auto& element : socketMap)
-    {
-        thread t(closeSession, element.first);
-        closingThreads.push_back(std::move(t));
-    }
+        closingThreads.emplace_back(thread(closeSession, element.first));
+
     for (auto& th : closingThreads)
         th.join();
 
@@ -345,14 +351,16 @@ void RPCSession::clear()
     closingThreads.clear();
 
     // If not running UnitTests or smth
-    if (Options::getDynamicOptions().activeConfigs() > 0 && Options::getDynamicOptions().currentConfigIsSet())
+    auto const& dynOpt = Options::getDynamicOptions();
+    if (dynOpt.activeConfigs() > 0 && dynOpt.currentConfigIsSet())
     {
-        ClientConfig const& curCFG = Options::getDynamicOptions().getCurrentConfig();
+        ClientConfig const& curCFG = dynOpt.getCurrentConfig();
         if (!curCFG.getStopperScript().empty() && Options::get().nodesoverride.size() == 0)
         {
-            executeCmd(curCFG.getStopperScript().c_str(), ExecCMDWarning::NoWarningNoError);
-            ETH_LOG(curCFG.getStopperScript().c_str(), 1);
-            if (!ExitHandler::receivedExitSignal())
+            int exitCode;
+            executeCmd(curCFG.getStopperScript().c_str(), exitCode, ExecCMDWarning::NoWarningNoError);
+            ETH_DC_MESSAGE(DC::RPC, curCFG.getStopperScript().c_str());
+            if (!ExitHandler::receivedExitSignal() && curCFG.cfgFile().socketType() != ClientConfgSocketType::TransitionTool)
             {
                 size_t const initTime = curCFG.cfgFile().initializeTime();
                 size_t const seconds = Options::get().lowcpu ? initTime + 10 : initTime;
@@ -363,3 +371,5 @@ void RPCSession::clear()
 }
 
 RPCSession::RPCSession(SessionInterface* _impl) : m_implementation(_impl) {}
+
+}  // namespace test::session

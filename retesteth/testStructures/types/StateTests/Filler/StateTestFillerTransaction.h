@@ -1,15 +1,8 @@
 #pragma once
 #include "../../../basetypes.h"
-#include "../../../types/ethereum.h"
 #include "../Base/StateTestTransactionBase.h"
-#include <retesteth/dataObject/DataObject.h>
-#include <retesteth/dataObject/SPointer.h>
-using namespace dataobject;
-using namespace test::teststruct;
-
-namespace test
-{
-namespace teststruct
+#include <libdataobj/DataObject.h>
+namespace test::teststruct
 {
 // Sructure to store JSON data from test
 // Indicates that Transaction is read from StateTest filler
@@ -17,9 +10,9 @@ namespace teststruct
 struct StateTestFillerTransaction : StateTestTransactionBase
 {
     StateTestFillerTransaction(spDataObjectMove);
+    spFH20 const& getSender() const { return m_publicKey; }
 };
 
 typedef GCP_SPointer<StateTestFillerTransaction> spStateTestFillerTransaction;
 
 }  // namespace teststruct
-}  // namespace test

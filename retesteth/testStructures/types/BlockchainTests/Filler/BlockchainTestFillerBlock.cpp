@@ -1,12 +1,10 @@
 #include "BlockchainTestFillerBlock.h"
 #include <retesteth/EthChecks.h>
 #include <retesteth/testStructures/Common.h>
-#include <retesteth/configs/ClientConfig.h>
 #include <retesteth/Options.h>
+using namespace std;
 
-namespace test
-{
-namespace teststruct
+namespace test::teststruct
 {
 BlockchainTestFillerBlock::BlockchainTestFillerBlock(spDataObject& _data, NonceMap& _nonceMap)
   : m_chainName(BlockchainTestFillerBlock::defaultChainName())
@@ -17,13 +15,16 @@ BlockchainTestFillerBlock::BlockchainTestFillerBlock(spDataObject& _data, NonceM
             {{"rlp", {{DataType::String}, jsonField::Optional}},
                 {"chainname", {{DataType::String}, jsonField::Optional}},
                 {"donotimportonclient", {{DataType::String}, jsonField::Optional}},
+                {"donotstackvalidtrxs", {{DataType::String}, jsonField::Optional}},
                 {"blocknumber", {{DataType::String}, jsonField::Optional}},
                 {"chainnetwork", {{DataType::String}, jsonField::Optional}},
                 {"transactions", {{DataType::Array}, jsonField::Optional}},
                 {"uncleHeaders", {{DataType::Array}, jsonField::Optional}},
+                {"withdrawals", {{DataType::Array}, jsonField::Optional}},
                 {"expectException", {{DataType::Object}, jsonField::Optional}},
                 {"blockHeader", {{DataType::Object}, jsonField::Optional}}});
 
+        m_hasBigInt = _data->performSearch(src_findBigInt);
         if (_data->count("rlp"))
         {
             m_rlp = spBYTES(new BYTES(_data->atKey("rlp")));
@@ -37,6 +38,7 @@ BlockchainTestFillerBlock::BlockchainTestFillerBlock(spDataObject& _data, NonceM
             m_chainName = BlockchainTestFillerBlock::defaultChainName();
 
         m_doNotImportOnClient = _data->count("donotimportonclient");
+        m_doNotStackValidTrxs = _data->count("donotstackvalidtrxs");
 
         if (_data->count("blocknumber"))
         {
@@ -49,12 +51,20 @@ BlockchainTestFillerBlock::BlockchainTestFillerBlock(spDataObject& _data, NonceM
             m_network = spFORK(new FORK(_data->atKey("chainnetwork")));
 
         if (_data->count("transactions"))
-            for (auto& tr : (*_data).atKeyUnsafe("transactions").getSubObjectsUnsafe())
-                m_transactions.push_back(BlockchainTestFillerTransaction(dataobject::move(tr), _nonceMap));
+        {
+            string const c_transactions = "transactions";
+            m_transactions.reserve(_data->atKey(c_transactions).getSubObjects().size());
+            for (auto& tr : (*_data).atKeyUnsafe(c_transactions).getSubObjectsUnsafe())
+                m_transactions.emplace_back(BlockchainTestFillerTransaction(dataobject::move(tr), _nonceMap));
+        }
+
+        if (_data->count("withdrawals"))
+            for (auto& wt : (*_data).atKeyUnsafe("withdrawals").getSubObjectsUnsafe())
+                m_withdrawals.emplace_back(BlockchainTestFillerWithdrawal(dataobject::move(wt)));
 
         if (_data->count("uncleHeaders"))
             for (auto const& un : _data->atKey("uncleHeaders").getSubObjects())
-                m_uncles.push_back(BlockchainTestFillerUncle(un));
+                m_uncles.emplace_back(BlockchainTestFillerUncle(un));
 
         if (_data->count("expectException"))
             readExpectExceptions(_data->atKey("expectException"), m_expectExceptions);
@@ -91,5 +101,37 @@ BlockchainTestFillerBlock::BlockchainTestFillerBlock(spDataObject& _data, NonceM
     }
 }
 
+BlockchainTestFillerBlock::BlockchainTestFillerBlock(BlockchainTestFillerBlock const& _other, bool _managed)
+{
+    _managed = true;
+    (void) _managed;
+    m_chainName = _other.chainName();
+
+    //spBYTES m_rlp;
+    if (_other.hasNumber())
+        m_blockNumber = sVALUE(VALUE(_other.number()));
+
+    if (_other.hasChainNet())
+        m_network = spFORK(new FORK(_other.chainNet()));
+
+    //bool m_hasBigInt = false;
+    m_doNotImportOnClient = _other.isDoNotImportOnClient();
+
+    for (auto const& un : _other.uncles())
+        m_uncles.emplace_back(un);
+
+    //std::vector<BlockchainTestFillerTransaction> m_transactions;
+
+    for (auto const& wt : _other.withdrawals())
+        m_withdrawals.emplace_back(wt);
+
+    //m_expectExceptions = _other.getExpectExceptions();
+    m_overwriteHeaderByForkMap = _other.getHeaderOverwriteMap();
+}
+
+void BlockchainTestFillerBlock::addException(FORK const& _net, std::string const& _ex)
+{
+    m_expectExceptions.emplace(_net, _ex);
+}
+
 }  // namespace teststruct
-}  // namespace test

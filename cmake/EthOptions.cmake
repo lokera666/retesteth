@@ -10,6 +10,7 @@ macro(configure_project)
     # Features:
     option(FASTCTEST "Enable fast ctest" OFF)
     option(JSONCPP "Enable jsoncpp for .json hash debugging (--showhash)" OFF)
+    option(UNITTESTS "Enable complex unit tests" OFF)
 
     # components
   
@@ -42,6 +43,7 @@ macro(print_config)
     message("-- CMAKE_BUILD_TYPE Build type                               ${CMAKE_BUILD_TYPE}")
     message("-- TARGET_PLATFORM  Target platform                          ${CMAKE_SYSTEM_NAME}")
     message("-- BUILD_SHARED_LIBS                                         ${BUILD_SHARED_LIBS}")
+    message("-- LOCALDEPS        Try to autolocate dependencies           ${LOCALDEPS}")
     message("------------------------------------------------------------------ tests")
     message("-- FASTCTEST        Run only test suites in ctest            ${FASTCTEST}")
     message("-- JSONCPP          Compile with jsoncpp for debug           ${JSONCPP}")

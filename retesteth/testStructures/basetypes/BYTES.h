@@ -1,31 +1,33 @@
 #pragma once
 #include <libdevcore/RLP.h>
-#include <retesteth/dataObject/DataObject.h>
-#include <retesteth/dataObject/SPointer.h>
-using namespace dataobject;
+#include <libdataobj/DataObject.h>
 
-namespace test
+namespace test::teststruct
 {
-namespace teststruct
-{
+
 // Validate and manage the type of BYTES
 // Deserialized from string of "0x1122....." of _limit range
-struct BYTES : GCP_SPointerBase
+struct BYTES : dataobject::GCP_SPointerBase
 {
     explicit BYTES(dev::RLP const& _rlp);
-    explicit BYTES(DataObject const&);
-    BYTES* copy() const { return new BYTES(DataObject(m_data)); }
+    explicit BYTES(dataobject::DataObject const&);
+    explicit BYTES(std::string const&);
+    BYTES* copy() const { return new BYTES(m_data); }
 
-    string const& asString() const { return m_data; }
+    std::string const& asString() const { return m_data; }
+    std::string& asStringUnsafe() { return m_data; }
+    size_t firstByte() const;
     bool operator!=(BYTES const& _rhs) const { return m_data != _rhs.asString(); }
     bool operator==(BYTES const& _rhs) const { return m_data == _rhs.asString(); }
 
 private:
     BYTES() {}
-    string m_data;
+    std::string m_data;
 };
 
-typedef GCP_SPointer<BYTES> spBYTES;
+typedef dataobject::GCP_SPointer<BYTES> spBYTES;
+template <class T>
+spBYTES sBYTES(T const& _arg) { return spBYTES(new BYTES(_arg)); }
+
 
 }  // namespace teststruct
-}  // namespace test

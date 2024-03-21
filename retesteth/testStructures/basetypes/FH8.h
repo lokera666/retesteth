@@ -1,28 +1,22 @@
 #pragma once
 #include "FH.h"
-#include <retesteth/dataObject/DataObject.h>
-#include <retesteth/dataObject/SPointer.h>
-using namespace dataobject;
+#include <libdataobj/DataObject.h>
 
-namespace test
+namespace test::teststruct
 {
-namespace teststruct
-{
+
 struct FH8 : FH
 {
     FH8(dev::RLP const& _rlp) : FH(_rlp, 8) {}
-    FH8(string const& _data) : FH(_data, 8) {}
-    FH8(DataObject const& _data) : FH(_data, 8) {}
-    FH8* copy() const { return new FH8(asString()); }
-
-    static FH8 const& zero()
-    {
-        static FH8 zero("0x0000000000000000");
-        return zero;
-    }
+    FH8(std::string const& _data) : FH(_data, 8) {}
+    FH8(dataobject::DataObject const& _data) : FH(_data, 8) {}
+    FH8* copy() const;
+    static FH8 const& zero();
 };
 
-typedef GCP_SPointer<FH8> spFH8;
+typedef dataobject::GCP_SPointer<FH8> spFH8;
+template <class T>
+spFH8 sFH8(T const& _arg) { return spFH8(new FH8(_arg)); }
+
 
 }  // namespace teststruct
-}  // namespace test

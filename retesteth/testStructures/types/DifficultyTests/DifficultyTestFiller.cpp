@@ -1,12 +1,12 @@
-#include <TestHelper.h>
-#include <TestOutputHelper.h>
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <retesteth/testStructures/Common.h>
-#include <retesteth/configs/ClientConfig.h>
 #include <retesteth/Options.h>
 
 #include "EthChecks.h"
 #include "DifficultyTestFiller.h"
 
+using namespace std;
 using namespace test;
 using namespace test::teststruct;
 
@@ -21,7 +21,7 @@ DifficultyTestFiller::DifficultyTestFiller(spDataObject& _data)
         for (auto& el : _data.getContent().getSubObjectsUnsafe())
         {
             TestOutputHelper::get().setCurrentTestInfo(TestInfo("TransactionTestFiller", el->getKey()));
-            m_tests.push_back(DifficultyTestInFiller(el));
+            m_tests.emplace_back(DifficultyTestInFiller(el));
         }
     }
     catch (DataObjectException const& _ex)
@@ -60,7 +60,7 @@ DifficultyTestInFiller::DifficultyTestInFiller(spDataObject& _data)
         m_parentDiffD = DifficultyRange(_data.getContent().atKeyUnsafe("parentDifficutly"));
 
         for (auto const& el : _data->atKey("hasUncles").getSubObjects())
-            m_uncles.push_back(el.getCContent().asInt());
+            m_uncles.emplace_back(el.getCContent().asInt());
 
         if (m_uncles.size() > 2)
             throw test::UpwardsException("hasUncles size is limited to 2!");
@@ -79,7 +79,7 @@ DifficultyRange::DifficultyRange(DataObject& _data)
         for (auto& el : _data.getSubObjectsUnsafe())
         {
             mod_valueToCompactEvenHexPrefixed(el.getContent());
-            m_vector.push_back(spVALUE(new VALUE(el)));
+            m_vector.emplace_back(spVALUE(new VALUE(el)));
         }
     }
     else if (_data.type() == DataType::String)
@@ -114,12 +114,12 @@ DifficultyRange::DifficultyRange(DataObject& _data)
         if (vBegin > vEnd)
             throw test::UpwardsException("Parsing DifficultyRange `" + _data.getKey() + "` begin > end!");
 
-        auto const steps = ((vEnd - vBegin) / dStep);
+        VALUE const steps = ((vEnd - vBegin) / VALUE(dStep));
         if (steps > 100)
             throw test::UpwardsException("Parsing DifficultyRange `" + _data.getKey() + "` has too many steps (>100): " + steps.asDecString());
 
         for (VALUE i = vBegin; i <= vEnd; i+= vStep)
-            m_vector.push_back(spVALUE(new VALUE(i.asBigInt())));
+            m_vector.emplace_back(spVALUE(new VALUE(i.asBigInt())));
     }
     else
         throw test::UpwardsException("Parsing DifficultyRange `" + _data.getKey() + "` has unexpected datatype!");

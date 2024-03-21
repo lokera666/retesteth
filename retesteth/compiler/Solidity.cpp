@@ -1,10 +1,13 @@
-#include "Compiler.h"
-#include "TestHelper.h"
+#include <retesteth/helpers/TestHelper.h>
 #include <libdevcore/CommonIO.h>
 #include <libdevcore/SHA3.h>
+#include <retesteth/EthChecks.h>
 using namespace dev;
 using namespace test;
+using namespace test::debug;
 using namespace dataobject;
+using namespace std;
+namespace fs = boost::filesystem;
 
 namespace
 {
@@ -301,7 +304,7 @@ string const& test::compiler::solContracts::getCode(string const& _contractName)
 // Encode Solidity abi
 string test::compiler::utiles::encodeAbi(string const& _code)
 {
-    ETH_LOG(_code, 7);
+    ETH_DC_MESSAGE(DC::LOWLOG, _code);
     string abi, abiSuffix;
 
     try
@@ -415,7 +418,7 @@ string test::compiler::utiles::encodeAbi(string const& _code)
     {
         throw test::UpwardsException(string("encodeAbi error: ") + _ex.what());
     }
-    ETH_LOG("0x" + abi + abiSuffix, 7);
+    ETH_DC_MESSAGE(DC::LOWLOG, "0x" + abi + abiSuffix);
     return "0x" + abi + abiSuffix;
 }
 
@@ -429,16 +432,29 @@ solContracts compileSolidity(string const& _code)
     BOOST_ERROR("Solidity compilation only supported on posix systems.");
     return "";
 #else
+    string evmVersion;
+    string const versionComment = "RETESTETH_SOLC_EVM_VERSION=";
+    size_t pos = _code.find(versionComment);
+    if (pos != string::npos)
+    {
+        size_t const endl = _code.find('\n', pos + versionComment.size());
+        if (endl != string::npos)
+        {
+            evmVersion = "--evm-version ";
+            evmVersion += _code.substr(pos + versionComment.size(), endl - pos - versionComment.size());
+        }
+    }
     fs::path const path(fs::temp_directory_path() / fs::unique_path());
-    string const cmd = string("solc --bin-runtime ") + path.string();
+    string const cmd = string("solc " + evmVersion + " --bin-runtime ") + path.string();
     writeFile(path.string(), _code);
-    string result = executeCmd(cmd);
+    int exitCode;
+    string result = executeCmd(cmd, exitCode);
 
     solContracts contracts;
     string const codeNamePrefix = "=======";
     string const codeBytePrefix = "Binary of the runtime part:";
 
-    size_t pos = result.find(codeNamePrefix);
+    pos = result.find(codeNamePrefix);
     while (pos != string::npos)
     {
         // Contract name ======= /tmp/ad01-b64d-321b-c636:TokenCreator =======

@@ -1,15 +1,11 @@
-#include "FH.h"
 #include "../Common.h"
-#include <libdevcore/CommonIO.h>
-#include <libdevcore/RLP.h>
 #include <retesteth/EthChecks.h>
-#include <retesteth/TestHelper.h>
-#include <sstream>
-#include <mutex>
-
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/Constants.h>
 using namespace test;
 using namespace test::teststruct;
 using namespace dev;
+using namespace std;
 
 std::mutex g_cacheAccessMutexFH;
 
@@ -24,15 +20,13 @@ bool validateHash(std::string const& _hash, size_t _size)
 }
 }  // namespace
 
-namespace test
-{
-namespace teststruct
+namespace test::teststruct
 {
 
 void FH::_initialize(string const& _data, string const& _key)
 {
     string const scale = to_string(m_scale);
-    size_t const pos = _data.find("0x:bigint ");
+    size_t const pos = _data.find(C_BIGINT_PREFIX);
     if (pos == string::npos)
     {
         if (!validateHash(_data, m_scale))
@@ -94,13 +88,9 @@ string const& FH::asString() const
     std::lock_guard<std::mutex> lock(g_cacheAccessMutexFH);
     if (m_dataStrZeroXCache.empty())
     {
-        if (m_isCorrectHash)
-            m_dataStrZeroXCache = m_data.asString();
-        else
-        {
-            m_dataStrZeroXCache = m_data.asString();
-            m_dataStrZeroXCache.insert(0, "0x:bigint ");
-        }
+        m_dataStrZeroXCache = m_data.asString();
+        if (!m_isCorrectHash)
+            m_dataStrZeroXCache.insert(0, C_BIGINT_PREFIX);
     }
     return m_dataStrZeroXCache;
 }
@@ -113,4 +103,3 @@ dev::bytes const& FH::serializeRLP() const
 }
 
 }  // namespace teststruct
-}  // namespace test

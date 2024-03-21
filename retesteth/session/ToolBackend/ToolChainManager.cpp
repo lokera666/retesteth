@@ -1,40 +1,54 @@
 #include "ToolChainManager.h"
-#include "ToolChainHelper.h"
 #include "ToolImplHelper.h"
-#include <retesteth/EthChecks.h>
-#include <retesteth/TestHelper.h>
-#include <retesteth/testStructures/Common.h>
-#include <retesteth/dataObject/ConvertFile.h>
-#include <retesteth/FileSystem.h>
+#include "Verification.h"
+#include <libdataobj/ConvertFile.h>
+#include <libdevcore/CommonIO.h>
+#include <libdevcore/SHA3.h>
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/Options.h>
+#include <retesteth/Constants.h>
+using namespace std;
+using namespace dev;
 using namespace test;
+using namespace test::debug;
+using namespace test::teststruct::constnames;
+namespace fs = boost::filesystem;
 
 namespace toolimpl
 {
-ToolChainManager::ToolChainManager(spSetChainParamsArgs const& _config, fs::path const& _toolPath, fs::path const& _tmpDir)
+ToolChainManager::ToolChainManager(
+    spSetChainParamsArgs const& _config,
+    fs::path const& _toolPath,
+    fs::path const& _tmpDir,
+    ToolChainGenesis _genesisPolicy)
 {
     m_tmpDir = _tmpDir;
     m_toolPath = _toolPath;
     m_currentChain = 0;
     m_maxChains = 0;
     EthereumBlockState genesis(_config->genesis(), _config->state(), FH32::zero());
-    m_chains[m_currentChain] = spToolChain(new ToolChain(genesis, _config, _toolPath, _tmpDir));
+    m_chains[m_currentChain] = spToolChain(new ToolChain(genesis, _config, _toolPath, _tmpDir, _genesisPolicy));
     m_pendingBlock =
         spEthereumBlockState(new EthereumBlockState(currentChain().lastBlock().header(), _config->state(), FH32::zero()));
     reorganizePendingBlock();
+
+
+    ETH_DC_MESSAGE(
+        DC::RPC, "test_setChainParams of new block: " + BlockHeader::BlockTypeToString(lastBlock().header()->type()));
 }
 
 spDataObject const ToolChainManager::mineBlocks(size_t _number, ToolChain::Mining _req)
 {
     if (_number > 1)
         throw test::UpwardsException("ToolChainManager::mineBlocks number arg invalid: " + fto_string(_number));
-    spDataObject const res = currentChainUnsafe().mineBlock(m_pendingBlock, currentChainUnsafe().lastBlock(), _req);
+    const spDataObject res = currentChainUnsafe().mineBlock(m_pendingBlock, currentChainUnsafe().lastBlock(), _req);
     reorganizePendingBlock();
     return res;
 }
 
 void ToolChainManager::rewindToBlock(VALUE const& _number)
 {
-    size_t number = (size_t)_number.asBigInt();
+    const size_t number = (size_t)_number.asBigInt();
     assert(_number.asBigInt() >= 0 && _number < currentChainUnsafe().blocks().size());
     currentChainUnsafe().rewindToBlock(number);
     reorganizePendingBlock();
@@ -43,26 +57,12 @@ void ToolChainManager::rewindToBlock(VALUE const& _number)
 void ToolChainManager::reorganizePendingBlock()
 {
     EthereumBlockState const& bl = currentChain().lastBlock();
-    if (currentChain().fork() == "BerlinToLondonAt5" && bl.header()->number() == 4)
-    {
-        // Switch default mining to 1559 blocks
-        spDataObject parentData = bl.header()->asDataObject();
-
-        VALUE newGasLimit = bl.header()->gasLimit() * ELASTICITY_MULTIPLIER;
-        (*parentData).atKeyUnsafe("gasLimit").setString(newGasLimit.asString());
-
-        // https://eips.ethereum.org/EIPS/eip-1559
-        // INITIAL_BASE_FEE = 1000000000
-        (*parentData)["baseFeePerGas"] = VALUE(INITIAL_BASE_FEE).asString();
-
-        spBlockHeader newPending(new BlockHeader1559(parentData));
-        m_pendingBlock = spEthereumBlockState(new EthereumBlockState(newPending, bl.state(), bl.logHash()));
-    }
-    else
-        m_pendingBlock = spEthereumBlockState(new EthereumBlockState(bl.header(), bl.state(), bl.logHash()));
+    transitionPendingBlock(bl);
 
     BlockHeader& header = m_pendingBlock.getContent().headerUnsafe().getContent();
     header.setNumber(bl.header()->number() + 1);
+    m_pendingBlock.getContent().setTotalDifficulty(currentChain().lastBlock().totalDifficulty());
+    m_pendingBlock.getContent().clear();
 
     // Because aleth and geth+retesteth does this, but better be empty extraData
     header.setExtraData(bl.header()->extraData());
@@ -70,18 +70,25 @@ void ToolChainManager::reorganizePendingBlock()
         header.setExtraData(BYTES(DataObject("0x64616f2d686172642d666f726b")));
     header.setParentHash(currentChain().lastBlock().header()->hash());
 
-    if (currentChain().lastBlock().header()->type() == BlockType::BlockHeader1559)
+    if (isBlockExportBasefee(currentChain().lastBlock().header()))
     {
         BlockHeader1559& header1559 = BlockHeader1559::castFrom(header);
-        ChainOperationParams params = ChainOperationParams::defaultParams(currentChain().toolParams());
-        VALUE newFee = calculateEIP1559BaseFee(params, m_pendingBlock->header(), currentChain().lastBlock().header());
+        const ChainOperationParams params = ChainOperationParams::defaultParams(currentChain().toolParams());
+        const VALUE newFee = calculateEIP1559BaseFee(params, m_pendingBlock->header(), currentChain().lastBlock().header());
         header1559.setBaseFee(VALUE(newFee));
+    }
+
+    if (isBlockExportDifficulty(header) && Options::getCurrentConfig().cfgFile().calculateDifficulty())
+    {
+        const ChainOperationParams params = ChainOperationParams::defaultParams(currentChain().toolParams());
+        const VALUE retestethDifficulty = calculateEthashDifficulty(params, m_pendingBlock->header(), currentChain().lastBlock().header());
+        header.setDifficulty(retestethDifficulty);
     }
 }
 
 EthereumBlockState const& ToolChainManager::blockByNumber(VALUE const& _number) const
 {
-    size_t blockN = (size_t)_number.asBigInt();
+    size_t const blockN = (size_t)_number.asBigInt();
     if (blockN >= currentChain().blocks().size())
         throw UpwardsException(string("ToolChainManager::blockByNumer block number not found: " + _number.asDecString()));
     return currentChain().blocks().at(blockN);
@@ -101,74 +108,10 @@ EthereumBlockState const& ToolChainManager::blockByHash(FH32 const& _hash) const
 void ToolChainManager::modifyTimestamp(VALUE const& _time)
 {
     m_pendingBlock.getContent().headerUnsafe().getContent().setTimestamp(_time);
-}
-
-// Import Raw Block via t8ntool
-FH32 ToolChainManager::importRawBlock(BYTES const& _rlp)
-{
-    try
-    {
-        // ETH_TEST_MESSAGE(_rlp.asString());
-        dev::bytes decodeRLP = sfromHex(_rlp.asString());
-        dev::RLP rlp(decodeRLP, dev::RLP::VeryStrict);
-        toolimpl::verifyBlockRLP(rlp);
-
-        spBlockHeader header = readBlockHeader(rlp[0]);
-        ETH_TEST_MESSAGE(header->asDataObject()->asJson());
-        for (auto const& chain : m_chains)
-            for (auto const& bl : chain.second->blocks())
-                if (bl.header()->hash() == header->hash())
-                    ETH_WARNING("Block with hash: `" + header->hash().asString() + "` already in chain!");
-
-        // Check that we know the parent and prepare head to be the parentHeader of _rlp block
-        reorganizeChainForParent(header->parentHash());
-        verifyEthereumBlockHeader(header, currentChain());
-
-        m_pendingBlock = spEthereumBlockState(new EthereumBlockState(header, lastBlock().state(), FH32::zero()));
-        for (auto const& trRLP : rlp[1].toList())
-        {
-            spTransaction spTr = readTransaction(trRLP);
-            ETH_TEST_MESSAGE(spTr->asDataObject()->asJson());
-            addPendingTransaction(spTr);
-        }
-
-        if (rlp[2].toList().size() > 2)
-            throw test::UpwardsException("Too many uncles!");
-
-        for (auto const& unRLP : rlp[2].toList())
-        {
-            spBlockHeader un = readBlockHeader(unRLP);
-            verifyEthereumBlockHeader(un, currentChain());
-            if (un->number() >= header->number() ||
-                un->number() + 7 <= header->number())
-                throw test::UpwardsException("Uncle number is wrong!");
-            for (auto const& pun : m_pendingBlock->uncles())
-                if (pun->hash() == un->hash())
-                    throw test::UpwardsException("Uncle is brother!");
-            m_pendingBlock.getContent().addUncle(un);
-        }
-
-        mineBlocks(1, ToolChain::Mining::RequireValid);
-        FH32 const importedHash = lastBlock().header()->hash();
-        if (importedHash != header->hash())
-        {
-            string errField;
-            string message = "t8ntool constructed HEADER vs rawRLP HEADER: \n";
-            message += compareBlockHeaders(
-                lastBlock().header()->asDataObject(), header->asDataObject(), errField);
-            ETH_ERROR_MESSAGE(string("Imported block hash != rawRLP hash ") + "(" + importedHash.asString() +
-                              " != " + header->hash().asString() + ")" + "\n " + message);
-        }
-
-        reorganizeChainForTotalDifficulty();
-        reorganizePendingBlock();
-        return importedHash;
-    }
-    catch (std::exception const& _ex)
-    {
-        reorganizeChainForTotalDifficulty();
-        throw test::UpwardsException(string("Error importing raw rlp block: ") + _ex.what());
-    }
+    if (currentChain().fork() == "MergeToShanghaiAtTime15k" && m_pendingBlock->header()->timestamp() >= 15000)
+        initShanghaiPendingBlock(m_pendingBlock);
+    if (currentChain().fork() == "ShanghaiToCancunAtTime15k" && m_pendingBlock->header()->timestamp() >= 15000)
+        initCancunPendingBlock(m_pendingBlock);
 }
 
 void ToolChainManager::reorganizeChainForParent(FH32 const& _parentHash)
@@ -218,125 +161,125 @@ void ToolChainManager::reorganizeChainForTotalDifficulty()
     }
 }
 
-TestRawTransaction ToolChainManager::test_rawTransaction(
-    BYTES const& _rlp, FORK const& _fork, fs::path const& _toolPath, fs::path const& _tmpDir)
+void ToolChainManager::registerWithdrawal(BYTES const& _wt)
 {
-    // Prepare test_mineBlocks response structure
-    DataObject out;
-    out["result"] = true;
-
-    // Prepare transaction file
-    fs::path txsPath = _tmpDir / "tx.rlp";
-
-    // Rlp list header builder for given data
-    test::RLPStreamU txsout(1);
-    txsout.appendRaw(_rlp.asString());
-
-    // Write data with less memory allocation
-    WRITEFILEN(txsPath.string(), string("\""), txsout.outHeader());
-    for (size_t i = 2; i < _rlp.asString().size(); i++)
-        ADDTOFILE(_rlp.asString()[i])
-    ADDTOFILE("\"");
-    CLOSEFILE();
-
-    // Write data with memory allocation but faster
-    // writeFile(txsPath.string(), string("\"") + txsout.outHeader() + _rlp.asString().substr(2) + "\"");
-
-    string cmd = _toolPath.string();
-    cmd += " --input.txs " + txsPath.string();
-    cmd += " --state.fork " + _fork.asString();
-    cmd += " 2>&1";
-    string response = test::executeCmd(cmd, ExecCMDWarning::NoWarningNoError);
-
-    ETH_TEST_MESSAGE("T9N Response:\n" + response);
-    spDataObject res;
-
     try
     {
-        res = dataobject::ConvertJsoncppStringToData(response);
+        dev::bytes const decodeRLP = sfromHex(_wt.asString());
+        dev::RLP const rlp(decodeRLP, dev::RLP::VeryStrict);
+        spWithdrawal wt(new Withdrawal(rlp));
+        m_pendingBlock.getContent().addWithdrawal(wt);
     }
-    catch (std::exception const& _ex) {
-        if (string(_ex.what()).find("can't read json") != string::npos)
-        {
-            // Unable to read json. treat response as exceptional failure on wrong input
-            ETH_WARNING("t9n returned invalid json, probably failed on input!");
-            res = spDataObject(new DataObject(DataType::Array));
-            spDataObject errObj;
-            (*errObj)["error"] = response;
-            (*res).addSubObject(errObj);
-            ETH_TEST_MESSAGE("T9N Response reconstructed:\n" + res->asJson());
-        }
-        else
-            throw _ex;
-    }
-
-    string const hash = "0x" + dev::toString(dev::sha3(fromHex(_rlp.asString())));
-    spDataObject tr;
-
-    auto const& resTr = res->getSubObjects().at(0);
-    if (resTr->count("intrinsicGas"))
+    catch(std::exception const& _ex)
     {
-        if (resTr->atKey("intrinsicGas").type() == DataType::Integer)
-            (*tr)["intrinsicGas"] = VALUE(resTr->atKey("intrinsicGas").asInt()).asString();
-        else if (resTr->atKey("intrinsicGas").type() == DataType::String)
-            (*tr)["intrinsicGas"] = VALUE(resTr->atKey("intrinsicGas").asString()).asString();
-        else
-            ETH_ERROR_MESSAGE("`intrinsicGas` field type expected to be Int or String: `" + resTr->asJson());
+        throw test::UpwardsException(string("Error importing rlp of withdrawal: ") + _ex.what());
     }
-    else
-        (*tr)["intrinsicGas"] = "0x00";
-
-    if (response.find("error") != string::npos || response.find("ERROR") != string::npos)
-    {
-        (*tr)["error"] = resTr->atKey("error").asString();
-        (*tr)["sender"] = FH20::zero().asString();
-        (*tr)["hash"] = hash;
-        out["rejectedTransactions"].addArrayObject(tr);
-    }
-    else
-    {
-        (*tr)["sender"] = resTr->atKey("address").asString();
-        (*tr)["hash"] = resTr->atKey("hash").asString();
-        out["acceptedTransactions"].addArrayObject(tr);
-        if (tr->atKey("hash").asString() != hash)
-            ETH_ERROR_MESSAGE("t8n tool returned different tx.hash than retesteth: (t8n.hash != retesteth.hash) " + tr->atKey("hash").asString() + " != " + hash);
-    }
-
-    ETH_TEST_MESSAGE("Response: test_rawTransaction `" + out.asJson());
-    return TestRawTransaction(out);
 }
 
-VALUE ToolChainManager::test_calculateDifficulty(FORK const& _fork, VALUE const& _blockNumber, VALUE const& _parentTimestamp,
-    VALUE const& _parentDifficulty, VALUE const& _currentTimestamp, VALUE const& _uncleNumber,
-    fs::path const& _toolPath, fs::path const& _tmpDir)
+
+void ToolChainManager::init1559PendingBlock(EthereumBlockState const& _lastBlock)
 {
-    DifficultyStatic const& data = prepareEthereumBlockStateTemplate();
+    // Switch default mining to 1559 blocks
+    spDataObject parentData = _lastBlock.header()->asDataObject();
 
-    // Constructor has serialization from data.blockA
-    EthereumBlockState blockA(data.blockA, data.state, data.loghash);
-    EthereumBlockState blockB(data.blockA, data.state, data.loghash);
+    const VALUE newGasLimit = _lastBlock.header()->gasLimit() * ELASTICITY_MULTIPLIER;
+    (*parentData).atKeyUnsafe(c_gasLimit).setString(string(newGasLimit.asString()));
 
-    BlockHeader& headerA = blockA.headerUnsafe().getContent();
-    headerA.setDifficulty(_parentDifficulty);
-    if (_blockNumber == 0)
-        ETH_ERROR_MESSAGE("ToolChainManager::test_calculateDifficulty calculating difficulty for blocknumber 0!");
-    headerA.setNumber(_blockNumber - 1);
-    headerA.setTimestamp(_parentTimestamp);
+    // https://eips.ethereum.org/EIPS/eip-1559
+    // INITIAL_BASE_FEE = 1000000000
+    (*parentData)[c_baseFeePerGas] = VALUE(INITIAL_BASE_FEE).asString();
 
-    // Set uncle hash to non empty
-    if (_uncleNumber > 0)
-        headerA.setUnclesHash(FH32("0x2dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"));
-    else
-        headerA.setUnclesHash(FH32("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347"));
-
-    BlockHeader& headerB = blockB.headerUnsafe().getContent();
-    headerB.setTimestamp(_currentTimestamp);
-    headerB.setNumber(_blockNumber);
-    headerB.setParentHash(headerA.hash());
-
-    ToolChain chain(blockA, blockB, _fork, _toolPath, _tmpDir);
-    return chain.lastBlock().header()->difficulty();
+    spBlockHeader newPending(new BlockHeader1559(parentData));
+    m_pendingBlock = spEthereumBlockState(new EthereumBlockState(newPending, _lastBlock.state(), _lastBlock.logHash()));
 }
 
+bool ToolChainManager::isTerminalPoWBlock()
+{
+    VALUE TERMINAL_TOTAL_DIFFICULTY(DataObject("0x0fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
+    DataObject const& configParams = currentChain().params()->params();
+    if (configParams.count("terminalTotalDifficulty"))
+        TERMINAL_TOTAL_DIFFICULTY = VALUE(configParams.atKey("terminalTotalDifficulty"));
+
+    auto const& currentChainBlocks = currentChain().blocks();
+    bool parentBlockTDLessThanTerminalTD = true;
+    if (currentChainBlocks.size() > 2 &&
+        currentChainBlocks.at(currentChainBlocks.size() - 2).totalDifficulty() >= TERMINAL_TOTAL_DIFFICULTY)
+        parentBlockTDLessThanTerminalTD = false;
+
+    VALUE const currentTD = currentChain().lastBlock().totalDifficulty();
+    // pow_block.total_difficulty >= TERMINAL_TOTAL_DIFFICULTY
+    // and pow_block.parent_block.total_difficulty < TERMINAL_TOTAL_DIFFICULTY
+    if (currentTD >= TERMINAL_TOTAL_DIFFICULTY && parentBlockTDLessThanTerminalTD)
+        return true;
+    return false;
+}
+
+void ToolChainManager::initMergePendingBlock(EthereumBlockState const& _lastBlock)
+{
+    // Switch default mining to Merge POS blocks
+    // https://eips.ethereum.org/EIPS/eip-3675
+    spDataObject parentData = _lastBlock.header()->asDataObject();
+    (*parentData)[c_uncleHash] = C_EMPTY_LIST_HASH;
+    (*parentData)[c_difficulty] = "0x00";
+    (*parentData)[c_mixHash] = C_FH32_ZERO.asString();
+    (*parentData)[c_nonce] = C_FH8_ZERO.asString();
+
+    spBlockHeader newPending(new BlockHeaderMerge(parentData));
+    m_pendingBlock = spEthereumBlockState(new EthereumBlockState(newPending, _lastBlock.state(), _lastBlock.logHash()));
+}
+
+void ToolChainManager::initShanghaiPendingBlock(EthereumBlockState const& _lastBlock)
+{
+    spDataObject parentData = _lastBlock.header()->asDataObject();
+    (*parentData)[c_withdrawalsRoot] = C_WITHDRAWALS_EMPTY_ROOT;
+    spBlockHeader newPending(new BlockHeaderShanghai(parentData));
+    m_pendingBlock = spEthereumBlockState(new EthereumBlockState(newPending, _lastBlock.state(), _lastBlock.logHash()));
+}
+
+void ToolChainManager::initCancunPendingBlock(EthereumBlockState const& _lastBlock)
+{
+    spDataObject parentData = _lastBlock.header()->asDataObject();
+    (*parentData)[c_blobGasUsed] = "0x00";
+    (*parentData)[c_excessBlobGas] = "0x00";
+    (*parentData)[c_parentBeaconBlockRoot] = FH32::zero().asString();
+    spBlockHeader newPending(new BlockHeader4844(parentData));
+    m_pendingBlock = spEthereumBlockState(new EthereumBlockState(newPending, _lastBlock.state(), _lastBlock.logHash()));
+}
+
+void ToolChainManager::transitionPendingBlock(EthereumBlockState const& _bl)
+{
+    auto const updatePending = [this, &_bl](){
+        m_pendingBlock = spEthereumBlockState(new EthereumBlockState(_bl.header(), _bl.state(), _bl.logHash()));
+    };
+
+    // Transform pending block to new network
+    if (_bl.header()->number() == 4)
+    {
+        if (currentChain().fork() == "BerlinToLondonAt5")
+        {
+            init1559PendingBlock(_bl);
+            return;
+        }
+    }
+
+    if (currentChain().fork() == "MergeToShanghaiAtTime15k" && m_pendingBlock->header()->timestamp() >= 15000)
+        initShanghaiPendingBlock(_bl);
+    else if (currentChain().fork() == "ShanghaiToCancunAtTime15k" && m_pendingBlock->header()->timestamp() >= 15000)
+        initCancunPendingBlock(_bl);
+    else if (currentChain().fork() == "ArrowGlacierToMergeAtDiffC0000" && isTerminalPoWBlock())
+        initMergePendingBlock(_bl);
+    else
+        updatePending();
+}
+
+bool ToolChainManager::isMergeChain() const
+{
+    assert(m_chains.size() > 0);
+
+    auto const& defaultChain = m_chains.at(0).getCContent();
+    assert(defaultChain.blocks().size() > 0);
+    auto const& genesisDifficulty = defaultChain.blocks().at(0).header()->difficulty();
+    return (genesisDifficulty == 0);
+}
 
 }  // namespace toolimpl

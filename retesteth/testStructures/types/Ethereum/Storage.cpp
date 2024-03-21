@@ -1,8 +1,7 @@
 #include "Storage.h"
 
-namespace test
-{
-namespace teststruct
+using namespace std;
+namespace test::teststruct
 {
 Storage::Storage(DataObject const& _data)
 {
@@ -10,7 +9,7 @@ Storage::Storage(DataObject const& _data)
     {
         DataObject tmpKey;
         tmpKey.setKey("Storage record in storage");  // Hint
-        tmpKey.setString(el->getKey());
+        tmpKey.setString(string(el->getKey()));
         spVALUE key(new VALUE(tmpKey));
         spVALUE val(new VALUE(el));
         m_map[key->asString()] = {key, val};
@@ -35,6 +34,4 @@ spDataObject Storage::asDataObject() const
     return out;
 }
 
-
 }  // namespace teststruct
-}  // namespace test

@@ -19,8 +19,8 @@ along with cpp-ethereum.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #pragma once
-#include <dataObject/DataObject.h>
-#include <retesteth/TestSuite.h>
+#include <libdataobj/DataObject.h>
+#include <retesteth/testSuiteRunner/TestSuite.h>
 #include <boost/filesystem/path.hpp>
 
 namespace test
@@ -29,7 +29,7 @@ class TransactionTestSuite : public TestSuite
 {
 public:
     TransactionTestSuite(){};
-    spDataObject doTests(spDataObject& _input, TestSuiteOptions& _opt) const override;
+    dataobject::spDataObject doTests(dataobject::spDataObject& _input, TestSuiteOptions& _opt) const override;
     TestSuite::TestPath suiteFolder() const override;
     TestSuite::FillerPath suiteFillerFolder() const override;
 };

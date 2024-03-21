@@ -1,13 +1,12 @@
 #pragma once
 #include "Socket.h"
-#include <retesteth/dataObject/DataObject.h>
+#include <libdataobj/DataObject.h>
 #include <retesteth/testStructures/basetypes.h>
 #include <retesteth/testStructures/types/rpc.h>
 #include <string>
 
-using namespace dataobject;
-using namespace test::teststruct;
-
+namespace test::session
+{
 enum class Request
 {
     FULLOBJECTS,
@@ -17,9 +16,9 @@ enum class Request
 struct RPCError
 {
     RPCError() : m_empty(true) { clear(); };
-    RPCError(string const& _error, string const& _message) : m_error(_error), m_message(_message), m_empty(false){};
-    string const& error() const { return m_error; }
-    string const& message() const { return m_message; }
+    RPCError(std::string const& _error, std::string const& _message) : m_error(_error), m_message(_message), m_empty(false){};
+    std::string const& error() const { return m_error; }
+    std::string const& message() const { return m_message; }
     bool empty() const { return m_empty; }
     void clear()
     {
@@ -29,10 +28,13 @@ struct RPCError
     }
 
 private:
-    string m_error;
-    string m_message;
+    std::string m_error;
+    std::string m_message;
     bool m_empty;
 };
+
+using namespace dataobject;
+using namespace test::teststruct;
 
 class SessionInterface
 {
@@ -44,8 +46,8 @@ public:
     virtual FH32 eth_sendRawTransaction(BYTES const& _rlp, VALUE const& _secret) = 0;
 
     virtual VALUE eth_blockNumber() = 0;
-    virtual EthGetBlockBy eth_getBlockByHash(FH32 const& _blockHash, Request _fullObjects) = 0;
-    virtual EthGetBlockBy eth_getBlockByNumber(VALUE const& _blockNumber, Request _fullObjects) = 0;
+    virtual spEthGetBlockBy eth_getBlockByHash(FH32 const& _blockHash, Request _fullObjects) = 0;
+    virtual spEthGetBlockBy eth_getBlockByNumber(VALUE const& _blockNumber, Request _fullObjects) = 0;
 
     // Account functions
     virtual spBYTES eth_getCode(FH20 const& _address, VALUE const& _blockNumber) = 0;
@@ -65,12 +67,15 @@ public:
 
     // Test
     virtual void test_setChainParams(spSetChainParamsArgs const& _config) = 0;
+    virtual void test_setChainParamsNoGenesis(spSetChainParamsArgs const& _config) = 0;
     virtual void test_rewindToBlock(VALUE const& _blockNr) = 0;
     virtual void test_modifyTimestamp(VALUE const& _timestamp) = 0;
     virtual MineBlocksResult test_mineBlocks(size_t _number) = 0;
     virtual FH32 test_importRawBlock(BYTES const& _blockRLP) = 0;
     virtual FH32 test_getLogHash(FH32 const& _txHash) = 0;
+    virtual void test_registerWithdrawal(BYTES const& _rlp) = 0;
     virtual TestRawTransaction test_rawTransaction(BYTES const& _rlp, FORK const& _fork) = 0;
+    virtual std::string test_rawEOFCode(BYTES const& _code, FORK const& _fork) = 0;
     virtual VALUE test_calculateDifficulty(FORK const& _fork, VALUE const& _blockNumber, VALUE const& _parentTimestamp,
         VALUE const& _parentDifficulty, VALUE const& _currentTimestamp, VALUE const& _uncleNumber) = 0;
 
@@ -88,3 +93,5 @@ protected:
     inline std::string quote(std::string const& _arg) { return "\"" + _arg + "\""; }
     RPCError m_lastInterfaceError;
 };
+
+}  // namespace test::session

@@ -1,15 +1,12 @@
 #pragma once
-#include "../Ethereum/BlockHeader.h"
-#include "../Ethereum/BlockHeader1559.h"
+#include "../Ethereum/Blocks/BlockHeader.h"
+#include "../Ethereum/Blocks/BlockHeader1559.h"
 #include "../Ethereum/State.h"
-#include <retesteth/dataObject/DataObject.h>
+#include <libdataobj/DataObject.h>
 
-using namespace dataobject;
+namespace test::teststruct
+{
 
-namespace test
-{
-namespace teststruct
-{
 struct SetChainParamsArgs : GCP_SPointerBase
 {
     SetChainParamsArgs(spDataObject& _data);
@@ -28,7 +25,44 @@ protected:
     spDataObject m_params;
 };
 
+struct SetChainParamsArgsGenesis : GCP_SPointerBase
+{
+    SetChainParamsArgsGenesis(DataObject const&);
+    spBlockHeader constructBlockHeader() const;
+    virtual ~SetChainParamsArgsGenesis() {}
+
+protected:
+    SetChainParamsArgsGenesis(DataObject const& _data, bool) : m_dataRef(_data){}
+    DataObject const& m_dataRef;
+    spDataObject buildCommonBlockHeader() const;
+    virtual spDataObject _constructBlockHeader() const;
+};
+struct SetChainParamsArgsGenesis1559 : SetChainParamsArgsGenesis
+{
+    SetChainParamsArgsGenesis1559(DataObject const&);
+protected:
+    virtual spDataObject _constructBlockHeader() const override;
+};
+struct SetChainParamsArgsGenesisMerge : SetChainParamsArgsGenesis
+{
+    SetChainParamsArgsGenesisMerge(DataObject const&);
+protected:
+    virtual spDataObject _constructBlockHeader() const override;
+};
+struct SetChainParamsArgsGenesisShanghai : SetChainParamsArgsGenesis
+{
+    SetChainParamsArgsGenesisShanghai(DataObject const&);
+protected:
+    virtual spDataObject _constructBlockHeader() const override;
+};
+struct SetChainParamsArgsGenesis4844 : SetChainParamsArgsGenesis
+{
+    SetChainParamsArgsGenesis4844(DataObject const&);
+protected:
+    virtual spDataObject _constructBlockHeader() const override;
+};
+
 typedef GCP_SPointer<SetChainParamsArgs> spSetChainParamsArgs;
+typedef GCP_SPointer<SetChainParamsArgsGenesis> spSetChainParamsArgsGenesis;
 
 }  // namespace teststruct
-}  // namespace test

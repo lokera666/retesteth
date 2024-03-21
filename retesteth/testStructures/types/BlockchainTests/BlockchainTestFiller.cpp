@@ -1,10 +1,13 @@
 #include "BlockchainTestFiller.h"
 #include <retesteth/EthChecks.h>
-#include <retesteth/Options.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <retesteth/testStructures/Common.h>
 
+using namespace std;
 using namespace test::teststruct;
 
+namespace test::teststruct
+{
 BlockchainTestInFiller::BlockchainTestInFiller(spDataObject& _data)
 {
     try
@@ -15,6 +18,7 @@ BlockchainTestInFiller::BlockchainTestInFiller(spDataObject& _data)
                 {"genesisBlockHeader", {{DataType::Object}, jsonField::Required}},
                 {"expect", {{DataType::Array}, jsonField::Required}},
                 {"exceptions", {{DataType::Array}, jsonField::Optional}},
+                {"verify", {{DataType::Object}, jsonField::Optional}},
                 {"pre", {{DataType::Object}, jsonField::Required}},
                 {"blocks", {{DataType::Array}, jsonField::Required}}});
 
@@ -43,13 +47,13 @@ BlockchainTestInFiller::BlockchainTestInFiller(spDataObject& _data)
                 ETH_ERROR_MESSAGE("BlockchainTestInFiller: Unknown sealEngine: " + sEngine);
         }
 
-        m_env = spBlockchainTestFillerEnv(new BlockchainTestFillerEnv(MOVE(_data, "genesisBlockHeader"), m_sealEngine));
+        m_env = spBlockchainTestFillerEnv(readBlockchainFillerTestEnv(MOVE(_data, "genesisBlockHeader"), m_sealEngine));
 
         // Process expect section
         std::set<FORK> knownForks;
         for (auto& el2 : (*_data).atKeyUnsafe("expect").getSubObjectsUnsafe())
         {
-            m_expects.push_back(el2);
+            m_expects.emplace_back(el2);
             BlockchainTestFillerExpectSection const& expect = m_expects.at(m_expects.size() - 1);
             for (auto const& fork : expect.forks())
             {
@@ -61,16 +65,26 @@ BlockchainTestInFiller::BlockchainTestInFiller(spDataObject& _data)
 
         ETH_ERROR_REQUIRE_MESSAGE(m_expects.size() > 0, "BlockchainTestFiller require expect section!");
 
+        // UnitTests
         if (_data->count("exceptions"))
         {
             for (size_t i = _data->atKey("exceptions").getSubObjects().size(); i > 0; i--)
-                m_exceptions.push_back(_data->atKey("exceptions").getSubObjects().at(i - 1)->asString());
+                m_exceptions.emplace_back(_data->atKey("exceptions").getSubObjects().at(i - 1)->asString());
+        }
+
+        if (_data->count("verify"))
+        {
+            spDataObjectMove m = MOVE(_data, "verify");
+            m_verify = m.getPointer();
         }
 
         m_hasAtLeastOneUncle = false;
-        for (auto& el : (*_data).atKeyUnsafe("blocks").getSubObjectsUnsafe())
+
+        string const c_blocks = "blocks";
+        m_blocks.reserve(_data->atKey(c_blocks).getSubObjects().size());
+        for (auto& el : (*_data).atKeyUnsafe(c_blocks).getSubObjectsUnsafe())
         {
-            m_blocks.push_back(BlockchainTestFillerBlock(el, nonceMap));
+            m_blocks.emplace_back(BlockchainTestFillerBlock(el, nonceMap));
             if (m_blocks.at(m_blocks.size() - 1).uncles().size() > 0)
                 m_hasAtLeastOneUncle = true;
         }
@@ -93,7 +107,7 @@ BlockchainTestFiller::BlockchainTestFiller(spDataObject& _data)
         for (auto& el : _data.getContent().getSubObjectsUnsafe())
         {
             TestOutputHelper::get().setCurrentTestInfo(TestInfo("BlockchainTestFiller", el->getKey()));
-            m_tests.push_back(BlockchainTestInFiller(el));
+            m_tests.emplace_back(BlockchainTestInFiller(el));
         }
     }
     catch (DataObjectException const& _ex)
@@ -123,3 +137,5 @@ std::set<FORK> BlockchainTestInFiller::getAllForksFromExpectSections() const
             out.emplace(el);
     return out;
 }
+
+}  // namespace teststruct

@@ -1,13 +1,8 @@
 #pragma once
 #include "../../../basetypes.h"
-#include "../../../configs/FORK.h"
-#include <retesteth/dataObject/DataObject.h>
-#include <retesteth/dataObject/SPointer.h>
-using namespace dataobject;
+#include <libdataobj/DataObject.h>
 
-namespace test
-{
-namespace teststruct
+namespace test::teststruct
 {
 struct StateTestPostResult : GCP_SPointerBase
 {
@@ -17,16 +12,10 @@ struct StateTestPostResult : GCP_SPointerBase
         return m_dataInd == (int)_dataInd && m_gasInd == (int)_gasInd && m_valInd == (int)_valInd;
     }
     FH32 const& hash() const { return m_hash; }
-    FH32 const& logs() const
-    {
-        static FH32 emptyLogs("0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347");
-        if (m_log.isEmpty())
-            return emptyLogs;
-        return m_log;
-    }
-    spBYTES const& bytesPtr() const { return m_txbytes; }
+    FH32 const& logs() const;
+    spBYTES const& txbytesPtr() const { return m_txbytes; }
     spDataObject asDataObject() const;
-    string const& expectException() const { return m_expectException; }
+    std::string const& expectException() const { return m_expectException; }
 
 private:
     StateTestPostResult() {}
@@ -36,10 +25,9 @@ private:
     spFH32 m_hash;
     spFH32 m_log;
     spBYTES m_txbytes;
-    string m_expectException;
+    std::string m_expectException;
 };
 
 typedef std::vector<StateTestPostResult> StateTestPostResults;
 
 }  // namespace teststruct
-}  // namespace test

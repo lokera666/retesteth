@@ -1,19 +1,14 @@
 #pragma once
 #include "../../../basetypes.h"
-#include <retesteth/dataObject/DataObject.h>
-#include <retesteth/dataObject/SPointer.h>
+#include <libdataobj/DataObject.h>
 
-using namespace dataobject;
-using namespace test::teststruct;
-namespace test
+namespace test::teststruct
 {
-namespace teststruct
-{
+
 // Base logic for State Test Env section
 struct StateTestEnvBase : GCP_SPointerBase
 {
     FH20 const& currentCoinbase() const { return m_currentCoinbase; }
-    VALUE const& currentDifficulty() const { return m_currentDifficulty; }
     VALUE const& currentGasLimit() const { return m_currentGasLimit; }
     VALUE const& currentNumber() const { return m_currentNumber; }
 
@@ -25,18 +20,23 @@ struct StateTestEnvBase : GCP_SPointerBase
     FH8 const& currentNonce() const { return m_currentNonce; }
     FH32 const& currentMixHash() const { return m_currentMixHash; }
     FH32 const& previousHash() const { return m_previousHash; }
-    spDataObject const& asDataObject() const;
-
-    spVALUE const& currentBaseFee() const { return m_currentBaseFee; }
-
+    virtual spDataObject const& asDataObject() const;
     virtual ~StateTestEnvBase() {}
+
+    VALUE const& currentBaseFee() const { return m_currentBaseFee; }
+    FH32 const& currentRandom() const { return m_currentRandom; }
+    VALUE const& currentDifficulty() const { return m_currentDifficulty; }
+
+    FH32 const& currentWithdrawalsRoot() const { return m_currentWithdrawalsRoot; }
+    VALUE const& currentExcessBlobGas() const { return m_currentExcessBlobGas; }
+    VALUE const& currentBlobGasUsed() const { return m_currentBlobGasUsed; }
+    FH32 const& currentBeaconRoot() const { return m_currentBeaconRoot; }
 
 protected:
     StateTestEnvBase() {}
     spDataObject m_raw;
 
     spFH20 m_currentCoinbase;
-    spVALUE m_currentDifficulty;
     spVALUE m_currentGasLimit;
     spVALUE m_currentNumber;
     spVALUE m_currentTimestamp;
@@ -45,9 +45,21 @@ protected:
     spFH8 m_currentNonce;
     spFH32 m_currentMixHash;
 
+    // 1559
+    spVALUE m_currentDifficulty;
     spVALUE m_currentBaseFee;
+
+    // Merge
+    spFH32 m_currentRandom;
+
+    // Shaghai
+    spFH32 m_currentWithdrawalsRoot;
+
+    // 4844
+    spVALUE m_currentBlobGasUsed;
+    spVALUE m_currentExcessBlobGas;
+    spFH32 m_currentBeaconRoot;
 };
 
 
 }  // namespace teststruct
-}  // namespace test

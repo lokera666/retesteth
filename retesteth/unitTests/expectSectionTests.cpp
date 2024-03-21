@@ -1,10 +1,9 @@
-#include <dataObject/ConvertFile.h>
+#include <libdataobj/ConvertFile.h>
 #include <retesteth/Options.h>
-#include <retesteth/TestHelper.h>
-#include <retesteth/TestOutputHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 #include <testStructures/types/StateTests/Filler/StateTestFillerExpectSection.h>
-#include <testStructures/types/StateTests/Filler/StateTestFillerTransaction.h>
 
+using namespace std;
 using namespace test;
 using namespace dataobject;
 
@@ -214,7 +213,7 @@ BOOST_AUTO_TEST_CASE(expectIndexesArrayValueMultiple)
     const string sTr = R"(
             {
                 "data" : [
-                    ":raw 0x11223341"
+                    ":raw 0x11223341",
                     ":label second :raw 0x11223344",
                     ":label second :raw 0x11223344"
                 ],
@@ -239,7 +238,7 @@ BOOST_AUTO_TEST_CASE(expectIndexesRange)
     const string sTr = R"(
             {
                 "data" : [
-                    ":raw 0x11223341"
+                    ":raw 0x11223341",
                     ":raw 0x11223344",
                     ":raw 0x11223344"
                 ],
@@ -264,7 +263,7 @@ BOOST_AUTO_TEST_CASE(expectIndexesRangeWrong)
     const string sTr = R"(
             {
                 "data" : [
-                    ":raw 0x11223341"
+                    ":raw 0x11223341",
                     ":raw 0x11223344",
                     ":raw 0x11223344"
                 ],
@@ -294,7 +293,7 @@ BOOST_AUTO_TEST_CASE(expectIndexesRangeArray)
     const string sTr = R"(
             {
                 "data" : [
-                    ":raw 0x11223341"
+                    ":raw 0x11223341",
                     ":raw 0x11223344",
                     ":raw 0x11223344"
                 ],
@@ -323,7 +322,7 @@ BOOST_AUTO_TEST_CASE(expectIndexesArrayNormal)
     const string sTr = R"(
             {
                 "data" : [
-                    ":raw 0x11223341"
+                    ":raw 0x11223341",
                     ":raw 0x11223344",
                     ":raw 0x11223344"
                 ],
@@ -350,7 +349,7 @@ BOOST_AUTO_TEST_CASE(expectIndexesArrayValueNotFound)
     const string sTr = R"(
             {
                 "data" : [
-                    ":raw 0x11223341"
+                    ":raw 0x11223341",
                     ":label second :raw 0x11223344",
                     ":raw 0x11223344"
                 ],

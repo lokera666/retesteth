@@ -20,22 +20,17 @@
  * RPC protocol unit tests.
  */
 
-#include <dataObject/DataObjectScheme.h>
-#include <dataObject/DataObjectValidator.h>
-#include <retesteth/Options.h>
-#include <retesteth/TestHelper.h>
-#include <retesteth/TestOutputHelper.h>
-#include <retesteth/TestSuite.h>
-#include <retesteth/session/Session.h>
 #include <retesteth/testSuites/Common.h>
 #include <retesteth/testSuites/RPCTests.h>
 #include <boost/test/unit_test.hpp>
 
 using namespace std;
 using namespace test;
+namespace fs = boost::filesystem;
 
 namespace test
 {
+
 spDataObject RPCTestSuite::doTests(spDataObject& _input, TestSuiteOptions& _opt) const
 {
     (void)_input;

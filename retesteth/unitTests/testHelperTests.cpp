@@ -19,11 +19,10 @@
  */
 
 #include <libdevcore/CommonIO.h>
-#include <retesteth/TestHelper.h>
-#include <retesteth/TestOutputHelper.h>
-#include <retesteth/configs/ClientConfig.h>
-#include <boost/test/unit_test.hpp>
+#include <retesteth/EthChecks.h>
 #include <retesteth/Options.h>
+#include <retesteth/helpers/TestHelper.h>
+#include <retesteth/helpers/TestOutputHelper.h>
 
 using namespace std;
 using namespace dev;
@@ -38,23 +37,40 @@ bool hasNetwork(std::vector<FORK> const& _container, FORK const& _net)
             return true;
     return false;
 }
-static vector<FORK> exampleNets = {FORK("Frontier"), FORK("Homestead"), FORK("EIP150"), FORK("EIP158"), FORK("Byzantium"),
-    FORK("Constantinople"), FORK("ConstantinopleFix")};
+static vector<FORK> exampleNets =
+    {
+        FORK("Frontier"),
+        FORK("Homestead"),
+        FORK("EIP150"),
+        FORK("EIP158"),
+        FORK("Byzantium"),
+        FORK("Constantinople"),
+        FORK("ConstantinopleFix")
+    };
 
 class Initializer : public TestOutputHelperFixture
 {
 public:
     Initializer()
     {
-        for (auto const& config : Options::getDynamicOptions().getClientConfigs())
-        {
-            Options::getDynamicOptions().setCurrentConfig(config);
-            vector<FORK> const& forks = Options::getCurrentConfig().cfgFile().forks();
-            vector<FORK>& forksCheat = const_cast<vector<FORK>&>(forks);
-            forksCheat = exampleNets;
-            break;
-        }
+        auto const& configs = Options::getDynamicOptions().getClientConfigs();
+        BOOST_CHECK(configs.size() > 0);
+        auto const& config = configs.at(0);
+        Options::getDynamicOptions().setCurrentConfig(config);
+        vector<FORK> const& forks = Options::getCurrentConfig().cfgFile().forks();
+        forksBackup = forks;
+        vector<FORK>& forksCheat = const_cast<vector<FORK>&>(forks);
+        forksCheat = exampleNets;
     }
+    ~Initializer()
+    {
+        // force config unload as we messed it up
+        std::vector<ClientConfig> const& configs = Options::getDynamicOptions().getClientConfigs();
+        std::vector<ClientConfig>& configsCheat = const_cast<std::vector<ClientConfig>&>(configs);
+        configsCheat.clear();
+    }
+private:
+    vector<FORK> forksBackup;
 };
 
 }  // namespace
@@ -151,7 +167,8 @@ BOOST_AUTO_TEST_CASE(comapreForks_ZeroStep)
 BOOST_AUTO_TEST_CASE(translateNetworks_doubleNet)
 {
     set<string> rawnetworks = {"Frontier", "<Homestead"};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets, networks);
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Frontier")));
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Homestead")) == false);
     ETH_FAIL_REQUIRE(networks.size() == 1);
@@ -161,7 +178,8 @@ BOOST_AUTO_TEST_CASE(translateNetworks_london)
 {
     set<string> rawnetworks = {">=London"};
     std::vector<FORK> exampleNets2 = {FORK("Frontier"), FORK("London")};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets2);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets2, networks);
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("London")));
     ETH_FAIL_REQUIRE(networks.size() == 1);
 }
@@ -169,7 +187,8 @@ BOOST_AUTO_TEST_CASE(translateNetworks_london)
 BOOST_AUTO_TEST_CASE(translateNetworks_gtHomestead)
 {
     set<string> rawnetworks = {"Frontier", ">Homestead"};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets, networks);
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Frontier")));
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Homestead")) == false);
     for (auto const& net : exampleNets)
@@ -182,7 +201,8 @@ BOOST_AUTO_TEST_CASE(translateNetworks_gtHomestead)
 BOOST_AUTO_TEST_CASE(translateNetworks_geHomestead)
 {
     set<string> rawnetworks = {"Frontier", ">=Homestead"};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets, networks);
     for (auto const& net : exampleNets)
         ETH_FAIL_REQUIRE(hasNetwork(networks, net));
 }
@@ -190,7 +210,8 @@ BOOST_AUTO_TEST_CASE(translateNetworks_geHomestead)
 BOOST_AUTO_TEST_CASE(translateNetworks_ltHomestead)
 {
     set<string> rawnetworks = {"<Homestead"};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets, networks);
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Frontier")));
     for (auto const& net : exampleNets)
     {
@@ -202,7 +223,8 @@ BOOST_AUTO_TEST_CASE(translateNetworks_ltHomestead)
 BOOST_AUTO_TEST_CASE(translateNetworks_ltTest)
 {
     set<string> rawnetworks = {"<=EIP150", "<EIP158"};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets, networks);
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Frontier")));
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Homestead")));
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("EIP150")));
@@ -213,7 +235,8 @@ BOOST_AUTO_TEST_CASE(translateNetworks_ltTest)
 BOOST_AUTO_TEST_CASE(translateNetworks_leHomestead)
 {
     set<string> rawnetworks = {"<=Homestead"};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets, networks);
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Frontier")));
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Homestead")));
     for (auto const& net : exampleNets)
@@ -226,7 +249,8 @@ BOOST_AUTO_TEST_CASE(translateNetworks_leHomestead)
 BOOST_AUTO_TEST_CASE(translateNetworks_leFrontier)
 {
     set<string> rawnetworks = {"<=Frontier"};
-    std::vector<FORK> networks = ClientConfig::translateNetworks(rawnetworks, exampleNets);
+    std::vector<FORK> networks;
+    ClientConfig::translateNetworks(rawnetworks, exampleNets, networks);
     ETH_FAIL_REQUIRE(hasNetwork(networks, FORK("Frontier")));
     for (auto const& net : exampleNets)
     {
