@@ -24,7 +24,9 @@ void TestBlock::exportRLPDecodedToData(BYTES const& _rawRLP, DataObject& _res)
     for (auto const& trRLP : rlp[1].toList())
     {
         spTransaction spTr = readTransaction(trRLP);
-        _res["rlp_decoded"]["transactions"].addArrayObject(spTr->asDataObject());
+        auto tr_json = spTr->asDataObject();
+        (*tr_json)["sender"] = spTr->sender().asString();
+        _res["rlp_decoded"]["transactions"].addArrayObject(tr_json);
     }
     _res["rlp_decoded"].atKeyPointer("uncleHeaders") = sDataObject(DataType::Array);
     for (auto const& unRLP : rlp[2].toList())

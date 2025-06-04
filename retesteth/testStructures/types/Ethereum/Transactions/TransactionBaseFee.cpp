@@ -180,8 +180,9 @@ const spDataObject TransactionBaseFee::asDataObject(ExportOrder _order) const
     (*out)["v"] = m_v->asString();
     (*out)["r"] = m_r->asString();
     (*out)["s"] = m_s->asString();
-    if (!m_sender.isEmpty())
-        (*out)["sender"] = m_sender->asString();
+    auto const sender_key = sender();
+    if (sender_key != FH20::zero())
+        (*out)["sender"] = sender_key.asString();
 
     if (_order == ExportOrder::ToolStyle)
     {
