@@ -27,8 +27,8 @@ HunterGate(
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-project(retesteth VERSION 0.3.2)
-set(VERSION_SUFFIX "legacy")
+project(retesteth VERSION 0.3.3)
+set(VERSION_SUFFIX "discontinued")
 
 set(Boost_USE_STATIC_LIBS ON)
 set(Boost_USE_MULTITHREADED ON)

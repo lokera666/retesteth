@@ -210,8 +210,10 @@ const spDataObject TransactionLegacy::asDataObject(ExportOrder _order) const
     (*out)[c_v] = m_v->asString();
     (*out)[c_r] = m_r->asString();
     (*out)[c_s] = m_s->asString();
-    if (!m_sender.isEmpty())
-        (*out)[c_sender] = m_sender->asString();
+
+    auto const sender_key = sender();
+    if (sender_key != FH20::zero())
+        (*out)[c_sender] = sender_key.asString();
 
     if (_order == ExportOrder::ToolStyle)
     {
